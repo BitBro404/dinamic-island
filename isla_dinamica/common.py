@@ -38,6 +38,8 @@ H = 34            # alto de la píldora compacta
 W_EXP = 460       # ancho de la isla expandida
 W_CARD = 420      # ancho de las tarjetas de aviso
 GAP = 6           # separación con el borde de la pantalla
+BUB_GAP = 6       # separación entre la píldora y las burbujas de actividades
+BUB_MAX = 2       # burbujas como máximo
 DRAG_MIN = 8      # píxeles que hay que mover el ratón para empezar a arrastrar
 
 CSS = b"""

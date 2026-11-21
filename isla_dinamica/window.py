@@ -47,6 +47,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self._nav_t = 0.0           # cuándo se cambió de página por última vez
         self._inside = False        # ratón dentro de la ventana (según enter/leave)
         self._layout = None
+        self._acts = []             # actividades en curso (grabación, descarga, música, pomodoro…)
+        self._shown = set()         # las que muestra la píldora; el resto va en burbujas
+        self.bubbles = []           # actividades que se ven como burbujas
+        self._bub_ext = 0           # largo que ocupan las burbujas (ancho u alto según orientación)
 
         ev = Gtk.EventBox()
         ev.set_visible_window(False)
@@ -72,7 +76,26 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(150)
         self.stack.set_size_request(*self.target)
-        ev.add(self.stack)
+        self.outer = Gtk.Box()
+        self.outer.pack_start(self.stack, False, False, 0)
+        self.bub_box = Gtk.Box(spacing=BUB_GAP)
+        self.bub_box.set_no_show_all(True)
+        self.bub_widgets = []
+        for _ in range(BUB_MAX):
+            st = Gtk.Stack()
+            st.set_size_request(H, H)
+            img = Gtk.Image()
+            art = Art(20, 10)
+            art.set_halign(Gtk.Align.CENTER)
+            st.add_named(img, "icon")
+            st.add_named(art, "art")
+            img.show()
+            art.show()
+            st.set_no_show_all(True)
+            self.bub_box.pack_start(st, False, False, 0)
+            self.bub_widgets.append((st, img, art))
+        self.outer.pack_start(self.bub_box, False, False, 0)
+        ev.add(self.outer)
 
         for name, builder in (("compact", self._build_compact), ("card", self._build_card),
                               ("alert", self._build_alert)):
@@ -281,6 +304,12 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         cr.set_operator(cairo.OPERATOR_OVER)
         a = self.get_allocation()
         w, h = a.width, a.height
+        if self.bubbles and self._bub_ext:
+            self._draw_bubbles(cr, w, h)
+            if self.vertical:
+                h = max(1, h - self._bub_ext)
+            else:
+                w = max(1, w - self._bub_ext)
         r = min(w / 2, h / 2, 30)
         cr.new_sub_path()
         cr.arc(w - r, r, r, -math.pi / 2, 0)
@@ -294,6 +323,107 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         cr.set_line_width(1)
         cr.stroke()
         return False
+
+    RING = {"orange": (1.0, 0.62, 0.04), "green": (0.19, 0.82, 0.35), "red": (1.0, 0.27, 0.23),
+            "blue": (0.04, 0.52, 1.0), None: (1.0, 1.0, 1.0)}
+
+    def _bubble_rects(self, w, h):
+        """(x, y) de la esquina de cada burbuja, alineadas al final de la ventana."""
+        out = []
+        for i in range(len(self.bubbles)):
+            off = self._bub_ext - BUB_GAP - i * (H + BUB_GAP)
+            out.append((w / 2 - H / 2, h - off) if self.vertical else (w - off, h / 2 - H / 2))
+        return out
+
+    def _draw_bubbles(self, cr, w, h):
+        for (x, y), act in zip(self._bubble_rects(w, h), self.bubbles):
+            cx, cy, r = x + H / 2, y + H / 2, H / 2
+            cr.arc(cx, cy, r, 0, 2 * math.pi)
+            cr.set_source_rgb(0, 0, 0)
+            cr.fill_preserve()
+            cr.set_source_rgba(1, 1, 1, 0.07)
+            cr.set_line_width(1)
+            cr.stroke()
+            prog = act.get("progress")
+            if prog is not None:
+                cr.set_line_width(2.5)
+                cr.set_source_rgba(1, 1, 1, 0.12)
+                cr.arc(cx, cy, r - 3, 0, 2 * math.pi)
+                cr.stroke()
+                cr.set_source_rgb(*self.RING.get(act.get("accent"), self.RING[None]))
+                cr.arc(cx, cy, r - 3, -math.pi / 2, -math.pi / 2 + 2 * math.pi * min(1.0, max(0.0, prog)))
+                cr.stroke()
+
+    def _set_bubbles(self, acts):
+        self.bubbles = acts
+        for i, (st, img, art) in enumerate(self.bub_widgets):
+            if i < len(acts):
+                a = acts[i]
+                if a.get("art") is not None:
+                    art.set_pixbuf(a["art"])
+                    st.set_visible_child_name("art")
+                else:
+                    img.set_from_icon_name(a["icon"], Gtk.IconSize.MENU)
+                    set_accent(img, a.get("accent"))
+                    st.set_visible_child_name("icon")
+                st.set_tooltip_text(a.get("tip"))
+                st.show()
+            else:
+                st.hide()
+        self.bub_box.set_visible(bool(acts))
+        if self.vertical:
+            self.bub_box.set_margin_top(BUB_GAP if acts else 0)
+            self.bub_box.set_margin_start(0)
+        else:
+            self.bub_box.set_margin_start(BUB_GAP if acts else 0)
+            self.bub_box.set_margin_top(0)
+        self._bub_ext = len(acts) * (H + BUB_GAP)
+        self.queue_draw()
+
+    def _bubble_at(self):
+        """Índice de la burbuja bajo el ratón, o None (sobre la píldora)."""
+        if not self.bubbles or self.view != "compact":
+            return None
+        try:
+            x, y = self._pointer()
+        except (AttributeError, TypeError):
+            return None
+        w, h = self.cur
+        for i, (bx, by) in enumerate(self._bubble_rects(w, h)):
+            if bx - BUB_GAP / 2 <= x <= bx + H + BUB_GAP / 2 and by - BUB_GAP / 2 <= y <= by + H + BUB_GAP / 2:
+                return i
+        return None
+
+    def _activities(self, c, m, playing, timer_left):
+        """Actividades en curso, de más a menos importante."""
+        acts = []
+        if c.recorder.active:
+            acts.append({"key": "rec", "icon": "media-record-symbolic", "accent": "red", "page": "record",
+                         "tip": f"Grabando · {fmt_secs(c.recorder.elapsed())}"})
+        if c.feature("deploys") and c.deploys.active():
+            d = c.deploys.active()[0]
+            acts.append({"key": "deploy", "icon": "emblem-synchronizing-symbolic", "accent": "orange",
+                         "page": "deploys", "tip": f"Desplegando {d['name']} · {d['env']}"})
+        if c.feature("downloads") and c.downloads.active:
+            acts.append({"key": "download", "icon": "folder-download-symbolic", "accent": "blue",
+                         "page": "downloads", "tip": f"Descargando {c.downloads.main()['name']}"})
+        r = c.reminders.next() if c.feature("reminders") else None
+        if r and r["at"] - time.time() < 300:
+            acts.append({"key": "reminder", "icon": "alarm-symbolic", "accent": "blue", "page": "reminders",
+                         "tip": r["text"]})
+        if playing:
+            acts.append({"key": "media", "icon": "audio-x-generic-symbolic", "accent": "green", "page": "home",
+                         "art": c.art, "tip": f"{m['title']} · {m.get('artist') or ''}".rstrip(" ·")})
+        p = c.pomo
+        if p.active:
+            acts.append({"key": "pomo", "icon": "timer-symbolic", "accent": "red" if p.phase == "work" else "green",
+                         "page": "pomo", "progress": 1 - p.left() / p.length(p.phase),
+                         "tip": f"{Pomodoro.LABEL[p.phase]} · {fmt_secs(p.left())}"})
+        if timer_left is not None:
+            acts.append({"key": "timer", "icon": "alarm-symbolic", "accent": "orange", "page": "timer",
+                         "progress": 1 - timer_left / max(1, c.timer_total),
+                         "tip": f"Temporizador · {fmt_secs(timer_left)}"})
+        return acts
 
     # ── animación tipo resorte ──
     def _anim_step(self):
@@ -318,7 +448,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self.stack.set_visible_child_name(self.pending)
             self.pending = None
         w, h = max(1, round(self.cur[0])), max(1, round(self.cur[1]))
-        self.stack.set_size_request(w, h)
+        if self.vertical:
+            self.stack.set_size_request(w, max(1, h - self._bub_ext))
+        else:
+            self.stack.set_size_request(max(1, w - self._bub_ext), h)
         self.resize(w, h)
         self._place()
         self.queue_draw()
@@ -344,6 +477,11 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             nat = self.c_box.get_preferred_height_for_width(H)[1]
             low = 150 if self.c_center.get_visible_child_name() == "level" else 84
             size = (H, max(low, min(300, nat + 4)))
+        bub = [a for a in self._acts if a["key"] not in self._shown][:BUB_MAX] if name == "compact" else []
+        if [a["key"] for a in bub] != [a["key"] for a in self.bubbles] or bub:
+            self._set_bubbles(bub)
+        ext = len(bub) * (H + BUB_GAP)
+        size = (size[0], size[1] + ext) if self.vertical else (size[0] + ext, size[1])
         size = (int(size[0]), int(size[1]))
         if name != self.view:
             grow = size[1] > self.cur[1] + 4 or size[0] > self.cur[0] + 40
@@ -403,6 +541,13 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             GLib.source_remove(self._hover_src)
             self._hover_src = None
         if value and not self.hover:
+            i = self._bubble_at()
+            if i is not None:
+                self.page = self.bubbles[i]["page"]
+                self._nav_t = time.monotonic()
+                spec = self._page_specs().get(self.page)
+                if spec and spec["open"]:
+                    getattr(self, spec["open"])()
             self.core.radios.refresh()
             ev = self.core.event
             self.card_hold = bool(self.view == "card" and ev and time.monotonic() < ev["until"])
@@ -518,6 +663,9 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if v == self.vertical:
             return
         self.vertical = v
+        o = Gtk.Orientation.VERTICAL if v else Gtk.Orientation.HORIZONTAL
+        self.outer.set_orientation(o)
+        self.bub_box.set_orientation(o)
         b = self.c_box
         b.set_orientation(Gtk.Orientation.VERTICAL if v else Gtk.Orientation.HORIZONTAL)
         b.set_margin_start(0 if v else 14)
@@ -693,6 +841,8 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         p = c.pomo
         pomo_on = p.active
         pomo_acc = "red" if p.phase == "work" else "green"
+        self._acts = self._activities(c, m, playing, timer_left)
+        self._shown = set()
 
         if c.alert_until and now < c.alert_until:
             self.a_sub.set_text(f"Temporizador de {fmt_secs(c.timer_total)}")
@@ -703,12 +853,15 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         elif self.hover:
             self._show(self.page, (W_EXP, min(580, self._natural(self.page, W_EXP))))
         elif c.event and now < c.event["until"]:
+            self._shown = {a["key"] for a in self._acts}     # durante un aviso, sin burbujas
             self._show_event(c.event)
         elif c.recorder.active:
+            self._shown = {"rec"}
             self._compact("icon", "media-record-symbolic", "red", text="Grabando", text_accent="red",
                           right="label", right_text=fmt_secs(c.recorder.elapsed()), right_accent="red")
             self._show("compact", (190, H))
         elif c.feature("deploys") and c.deploys.active():
+            self._shown = {"deploy"}
             d = c.deploys.active()[0]
             more = len(c.deploys.active()) - 1
             self._compact("icon", "emblem-synchronizing-symbolic", "orange",
@@ -717,6 +870,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             nat = self._natural("compact", 0)
             self._show("compact", (max(220, min(380, nat + 4)), H))
         elif c.feature("downloads") and c.downloads.active:
+            self._shown = {"download"}
             d = c.downloads.main()
             n = len(c.downloads.active)
             rate = f"{fmt_size(int(d['speed']))}/s" if d["speed"] > 1024 else fmt_size(d["size"])
@@ -725,12 +879,14 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                           right="label", right_text=rate, right_accent="blue")
             self._show("compact", (300, H))
         elif c.feature("reminders") and c.reminders.next() and c.reminders.next()["at"] - time.time() < 300:
+            self._shown = {"reminder"}
             r = c.reminders.next()
             self._compact("icon", "alarm-symbolic", "blue", text=r["text"],
                           right="label", right_text=fmt_secs(max(0, r["at"] - time.time())), right_accent="blue")
             nat = self._natural("compact", 0)
             self._show("compact", (max(200, min(340, nat + 4)), H))
         elif playing:
+            self._shown = {"media", "pomo" if pomo_on else "timer" if timer_left is not None else "media"}
             if pomo_on:
                 self._compact("art", text=m["title"], right="label", right_text=fmt_secs(p.left()),
                               right_accent=pomo_acc)
@@ -742,12 +898,14 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                 eq_on = True
             self._show("compact", (300, H))
         elif pomo_on:
+            self._shown = {"pomo"}
             self._compact("icon", "timer-symbolic", pomo_acc,
                           text=f"{Pomodoro.LABEL[p.phase]}  {fmt_secs(p.left())}", text_accent=pomo_acc,
                           right="label" if not p.running else None, right_text="En pausa")
             nat = self._natural("compact", 0)
             self._show("compact", (max(190, min(320, nat + 4)), H))
         elif timer_left is not None:
+            self._shown = {"timer"}
             self._compact("icon", "alarm-symbolic", "orange", text=fmt_secs(timer_left), xalign=0.5,
                           text_accent="orange")
             self._show("compact", (170, H))
