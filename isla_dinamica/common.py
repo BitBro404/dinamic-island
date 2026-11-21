@@ -46,6 +46,7 @@ CSS = b"""
 window { background: transparent; }
 * { color: #f5f5f7; font-family: "Inter", "Cantarell", sans-serif; }
 .c-text { font-weight: 600; font-size: 13px; }
+.c-time { font-weight: 600; font-size: 13px; color: rgba(255,255,255,0.55); }
 .dim { color: #8e8e93; font-size: 12px; }
 .small { font-size: 11px; }
 .title { font-weight: 700; font-size: 15px; }
@@ -68,6 +69,8 @@ button.chip:hover { background: rgba(255,255,255,0.22); }
 button.chip label { font-weight: 600; font-size: 12px; }
 button.chip.danger label { color: #ff453a; }
 button.chip.on { background: #0a84ff; }
+button.spec { background: transparent; border: none; box-shadow: none; padding: 0; min-height: 0; }
+button.spec:hover { background: rgba(255,255,255,0.04); }
 button.chip.on label { color: white; }
 button.tile { min-width: 44px; min-height: 44px; padding: 0; border-radius: 22px;
               background: rgba(255,255,255,0.12); }
@@ -276,13 +279,24 @@ def bat_icon(pct, charging):
     return f"battery-{lvl}{'-charging' if charging else ''}-symbolic"
 
 
+CLOCK = {"h24": True}      # Core lo actualiza según la función «clock24» de la página «Más»
+
+
+def hm(ts=None):
+    """Hora corta según la preferencia: «15:58» o «3:58 pm»."""
+    t = time.localtime(ts)
+    if CLOCK["h24"]:
+        return f"{t.tm_hour:02d}:{t.tm_min:02d}"
+    return f"{t.tm_hour % 12 or 12}:{t.tm_min:02d} {'am' if t.tm_hour < 12 else 'pm'}"
+
+
 def ago(ts):
     d = time.time() - ts
     if d < 60:
         return "ahora"
     if d < 3600:
         return f"hace {int(d // 60)} min"
-    return time.strftime("%H:%M", time.localtime(ts))
+    return hm(ts)
 
 
 TEAMS_APP = "chrome-ompifgpmddkgmclendfeacglnodjjndh-Default"      # PWA de Teams en Chrome

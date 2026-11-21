@@ -15,13 +15,15 @@ __all__ = ["AudioWatch"]
 RATE = 8000
 CHUNK = 400                      # 50 ms → 20 lecturas por segundo
 WIN = 128                        # muestras analizadas por banda: bandas anchas (~62 Hz) y poco cálculo
-BANDS = (125, 375, 1250, 3250)   # Hz: graves, medios bajos, medios, agudos
+BANDS = (125, 375, 1250, 3250)   # Hz: graves, medios bajos, medios, agudos (píldora)
+WIN_D = 200                      # espectro detallado (reproductor desplegado): 10 bandas de ~40 Hz
+BANDS_D = (80, 130, 200, 300, 450, 700, 1050, 1600, 2400, 3400)
 CLIENT = "isla-dinamica-meter"
 _IGNORE_BIN = {"pw-play", "paplay", "aplay", "canberra-gtk-play", "speech-dispatcher", "parec", "pw-record", "pw-cat"}
 
 
-def _goertzel_coeffs():
-    return [2 * math.cos(2 * math.pi * round(WIN * f / RATE) / WIN) for f in BANDS]
+def _goertzel_coeffs(win, bands):
+    return [2 * math.cos(2 * math.pi * round(win * f / RATE) / win) for f in bands]
 
 
 def _streams(kind):
@@ -54,8 +56,10 @@ class AudioWatch:
         self.loud_at = 0.0         # última vez que sonó algo audible
         self._proc = None
         self._peak = 0.02
-        self._bpeak = [0.01] * len(BANDS)
-        self._coef = _goertzel_coeffs()
+        self._bpeak = {}
+        self._coef = _goertzel_coeffs(WIN, BANDS)
+        self._coef_d = _goertzel_coeffs(WIN_D, BANDS_D)
+        self.detail_until = 0.0    # hasta cuándo calcular el espectro detallado
         self._lock = threading.Lock()
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -141,22 +145,25 @@ class AudioWatch:
     def _analyze(self, x):
         n = len(x)
         rms = math.sqrt(sum(v * v for v in x) / n) / 32768
-        w = x[-WIN:]
+        detail = time.monotonic() < self.detail_until
+        win, coefs = (WIN_D, self._coef_d) if detail else (WIN, self._coef)
+        w = x[-win:]
         mags = []
-        for c in self._coef:
+        for c in coefs:
             s1 = s2 = 0.0
             for v in w:
                 s0 = v + c * s1 - s2
                 s2, s1 = s1, s0
-            mags.append(math.sqrt(max(0.0, s1 * s1 + s2 * s2 - c * s1 * s2)) / (WIN * 32768))
+            mags.append(math.sqrt(max(0.0, s1 * s1 + s2 * s2 - c * s1 * s2)) / (win * 32768))
         # ganancia automática por banda (cada barra usa su propio techo, que decae despacio)
         # y una general, para que una canción suave no se vea igual de alta que una fuerte
         self._peak = max(rms, self._peak * 0.995, 0.01)
         loud = min(1.0, rms / self._peak * 1.15)
         out = []
+        peaks = self._bpeak.setdefault(len(mags), [0.01] * len(mags))
         for i, m in enumerate(mags):
-            self._bpeak[i] = max(m, self._bpeak[i] * 0.985, 0.002)
-            out.append(min(1.0, (m / self._bpeak[i]) ** 0.8 * (0.35 + 0.65 * loud)) if rms > 0.002 else 0.0)
+            peaks[i] = max(m, peaks[i] * 0.985, 0.002)
+            out.append(min(1.0, (m / peaks[i]) ** 0.8 * (0.35 + 0.65 * loud)) if rms > 0.002 else 0.0)
         self.levels = out
         self.level = loud if rms > 0.002 else 0.0
         if rms > 0.004:

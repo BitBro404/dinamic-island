@@ -4,6 +4,7 @@ from ..widgets import *  # noqa: F401,F403
 from ..services import *  # noqa: F401,F403
 from .registry import feature, page
 
+feature("clock24", "Hora en formato 24 h", "Apágalo para ver la hora en 12 h (3:58 pm)")
 feature("audio", "Audio en vivo", "Barras que siguen el sonido real, brillo al ritmo y aviso de llamadas o de "
         "apps que reproducen audio")
 feature("privacy", "Cámara y micrófono",
@@ -73,8 +74,12 @@ class HomePage:
         prog.pack_start(self.m_bar, True, True, 0)
         prog.pack_start(self.m_len, False, False, 0)
         self.h_media.pack_start(prog, False, False, 0)
+        self.m_spec = Spectrum(38)
+        self.m_spec.levels_fn = lambda: c.audio.levels if c.feature("audio") else None
+        spec_btn = button("spec", self.m_spec, lambda: c.media_cmd("PlayPause"), "Clic para pausar o reanudar")
+        self.h_media.pack_start(spec_btn, False, False, 0)
         self.h_media.set_no_show_all(True)
-        for ch in (row, prog):
+        for ch in (row, prog, spec_btn):
             ch.show_all()
         box.pack_start(self.h_media, False, False, 0)
 
@@ -177,7 +182,7 @@ class HomePage:
             Volume.set(scale.get_value() / 100)
 
     def _update_home(self, c, m, playing, timer_left):
-        self.h_clock.set_text(time.strftime("%H:%M"))
+        self.h_clock.set_text(hm())
         self.h_date.set_text(fecha())
         b = c.battery
         if b.present:
@@ -192,6 +197,8 @@ class HomePage:
         self.h_media.set_visible(m is not None)
         self.c_art.set_pixbuf(c.art)
         self.m_art.set_pixbuf(c.art)
+        self.m_spec.color = self._art_color if hasattr(self, "_art_color") else self.m_spec.color
+        self.m_spec.set_playing(playing and self.hover and self.page == "home")
         if m:
             self.m_title.set_text(m["title"])
             self.m_artist.set_text(m["artist"] or m["album"])

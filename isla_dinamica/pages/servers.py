@@ -48,7 +48,7 @@ class ServersPage:
         for s in sv.sorted():
             sub = f":{s['port']} · {s['kind']}"
             if s["started"]:
-                sub += f" · desde las {time.strftime('%H:%M', time.localtime(s['started']))}"
+                sub += f" · desde las {hm(s['started'])}"
             extra = [button("ctrl", icon("web-browser-symbolic"), lambda u=s["url"]: self._collapse_then(
                 lambda: open_uri(u)), "Abrir en el navegador")]
             if s["mine"]:

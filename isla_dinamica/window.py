@@ -51,6 +51,8 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self._shown = set()         # las que muestra la píldora; el resto va en burbujas
         self.bubbles = []           # actividades que se ven como burbujas
         self._bub_ext = 0           # largo que ocupan las burbujas (ancho u alto según orientación)
+        self.pad = (0, 0, 0, 0)     # espacio alrededor para la sombra de las notificaciones (izq, arr, der, abj)
+        self._card_rgb = (0.35, 0.45, 0.95)
 
         ev = Gtk.EventBox()
         ev.set_visible_window(False)
@@ -113,6 +115,9 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
     # ── construcción ──
     def _build_compact(self):
         box = self.c_box = Gtk.Box(spacing=9, margin_start=14, margin_end=14)
+        self.c_time = label("", "c-time", ellipsize=False)     # la hora, siempre a la vista
+        self.c_time.set_no_show_all(True)
+        box.pack_start(self.c_time, False, False, 0)
         self.c_left = Gtk.Stack()
         self.c_icon = Gtk.Image()
         self.c_art = Art(22, 6)
@@ -197,9 +202,16 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         head.pack_start(button("ctrl", icon("go-previous-symbolic"), lambda: self.go("home"), "Volver"),
                         False, False, 0)
         head.pack_start(label(title, "title"), True, True, 0)
+        clk = label(hm(), "c-time", ellipsize=False)
+        clk.set_valign(Gtk.Align.CENTER)
+        head.pack_end(clk, False, False, 0) if right is None else None
+        if not hasattr(self, "_page_clocks"):
+            self._page_clocks = []
+        self._page_clocks.append(clk)
         if right is not None:
             right.set_valign(Gtk.Align.CENTER)
             head.pack_end(right, False, False, 0)
+            head.pack_end(clk, False, False, 4)
         box.pack_start(head, False, False, 0)
         return box
 
@@ -309,7 +321,12 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
         a = self.get_allocation()
-        w, h = a.width, a.height
+        pl, pt, pr, pb = self.pad
+        w, h = a.width - pl - pr, a.height - pt - pb
+        cr.translate(pl, pt)
+        if any(self.pad):
+            self._draw_card_back(cr, w, h)
+            return False
         if self.bubbles and self._bub_ext:
             self._draw_bubbles(cr, w, h)
             if self.vertical:
@@ -333,6 +350,81 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             cr.set_line_width(1)
         cr.stroke()
         return False
+
+    @staticmethod
+    def _rrect(cr, x, y, w, h, r):
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+
+    def _draw_card_back(self, cr, w, h):
+        """Notificación: sombra suave alrededor y un degradado del color de la app sobre el negro."""
+        r = min(w / 2, h / 2, 30)
+        dx, dy = {"top": (0, 5), "bottom": (0, -5), "left": (5, 0), "right": (-5, 0)}[self.core.dock["edge"]]
+        rr, gg, bb = self._card_rgb
+        steps = 12
+        for i in range(steps, 0, -1):          # sombra: capas cada vez más grandes y más tenues
+            self._rrect(cr, dx - i, dy - i, w + 2 * i, h + 2 * i, r + i)
+            a = 0.05 * (1 - i / (steps + 1)) ** 1.6
+            cr.set_source_rgba(rr * 0.25, gg * 0.25, bb * 0.25, a * 2.2)
+            cr.fill()
+        self._rrect(cr, 0, 0, w, h, r)
+        cr.set_source_rgb(0, 0, 0)
+        cr.fill_preserve()
+        g = cairo.LinearGradient(0, 0, w, h)
+        g.add_color_stop_rgba(0, rr, gg, bb, 0.42)
+        g.add_color_stop_rgba(0.45, rr, gg, bb, 0.10)
+        g.add_color_stop_rgba(1, rr, gg, bb, 0.0)
+        cr.set_source(g)
+        cr.fill_preserve()
+        top = cairo.LinearGradient(0, 0, 0, h)       # brillo arriba, como un vidrio
+        top.add_color_stop_rgba(0, 1, 1, 1, 0.07)
+        top.add_color_stop_rgba(0.5, 1, 1, 1, 0.0)
+        cr.set_source(top)
+        cr.fill_preserve()
+        border = cairo.LinearGradient(0, 0, w, 0)
+        border.add_color_stop_rgba(0, rr, gg, bb, 0.55)
+        border.add_color_stop_rgba(1, 1, 1, 1, 0.06)
+        cr.set_source(border)
+        cr.set_line_width(1.2)
+        cr.stroke()
+
+    CARD_COLORS = (("teams", (0.38, 0.39, 0.85)), ("outlook", (0.06, 0.47, 0.85)), ("correo", (0.06, 0.47, 0.85)),
+                   ("github", (0.62, 0.66, 0.78)), ("pomodoro", (1.0, 0.27, 0.23)), ("grabación", (1.0, 0.27, 0.23)),
+                   ("fallido", (1.0, 0.27, 0.23)), ("recordatorio", (0.04, 0.52, 1.0)),
+                   ("descarga", (0.04, 0.52, 1.0)), ("medio", (1.0, 0.62, 0.04)), ("captura", (0.6, 0.62, 0.7)))
+
+    def _card_color(self, ev):
+        if ev.get("pixbuf") is not None:
+            return vivid_color(ev["pixbuf"], (0.35, 0.45, 0.95))
+        acc = ev.get("accent")
+        if acc in self.RING and acc:
+            return self.RING[acc]
+        app = (ev.get("app") or "").lower()
+        for key, rgb in self.CARD_COLORS:
+            if key in app:
+                return rgb
+        return (0.35, 0.45, 0.95)
+
+    def _set_pad(self, on):
+        e = self.core.dock["edge"]
+        if not on:
+            pad = (0, 0, 0, 0)
+        else:   # poca sombra del lado pegado al borde, más del lado contrario (la luz viene del borde)
+            pad = {"top": (16, 4, 16, 24), "bottom": (16, 24, 16, 4),
+                   "left": (4, 16, 24, 16), "right": (24, 16, 4, 16)}[e]
+        if pad == self.pad:
+            return
+        self.pad = pad
+        self.outer.set_margin_start(pad[0])
+        self.outer.set_margin_top(pad[1])
+        self.outer.set_margin_end(pad[2])
+        self.outer.set_margin_bottom(pad[3])
+        self._layout = None
+        self._kick()
 
     def _set_glow(self, on):
         """Mientras suena algo, el borde de la píldora brilla al ritmo del volumen."""
@@ -423,15 +515,27 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         return None
 
     def _activities(self, c, m, playing, timer_left):
-        """Actividades en curso, de más a menos importante."""
+        """Actividades en curso, de más a menos importante: llamada, música, pomodoro y el resto."""
         acts = []
-        if c.recorder.active:
-            acts.append({"key": "rec", "icon": "media-record-symbolic", "accent": "red", "page": "record",
-                         "tip": f"Grabando · {fmt_secs(c.recorder.elapsed())}"})
         au = c.audio if c.feature("audio") else None
         if au and au.call:
             acts.append({"key": "call", "icon": "call-start-symbolic", "accent": "green", "page": "home",
                          "tip": f"En llamada · {au.call} · {fmt_secs(time.monotonic() - au.call_since)}"})
+        if playing:
+            acts.append({"key": "media", "icon": "audio-x-generic-symbolic", "accent": "green", "page": "home",
+                         "art": c.art, "tip": f"{m['title']} · {m.get('artist') or ''}".rstrip(" ·")})
+        p = c.pomo
+        if p.active:
+            acts.append({"key": "pomo", "icon": "timer-symbolic", "accent": "red" if p.phase == "work" else "green",
+                         "page": "pomo", "progress": 1 - p.left() / p.length(p.phase),
+                         "tip": f"{Pomodoro.LABEL[p.phase]} · {fmt_secs(p.left())}"})
+        if c.recorder.active:
+            acts.append({"key": "rec", "icon": "media-record-symbolic", "accent": "red", "page": "record",
+                         "tip": f"Grabando · {fmt_secs(c.recorder.elapsed())}"})
+        r = c.reminders.next() if c.feature("reminders") else None
+        if r and r["at"] - time.time() < 300:
+            acts.append({"key": "reminder", "icon": "alarm-symbolic", "accent": "blue", "page": "reminders",
+                         "tip": r["text"]})
         if c.feature("deploys") and c.deploys.active():
             d = c.deploys.active()[0]
             acts.append({"key": "deploy", "icon": "emblem-synchronizing-symbolic", "accent": "orange",
@@ -439,21 +543,9 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if c.feature("downloads") and c.downloads.active:
             acts.append({"key": "download", "icon": "folder-download-symbolic", "accent": "blue",
                          "page": "downloads", "tip": f"Descargando {c.downloads.main()['name']}"})
-        r = c.reminders.next() if c.feature("reminders") else None
-        if r and r["at"] - time.time() < 300:
-            acts.append({"key": "reminder", "icon": "alarm-symbolic", "accent": "blue", "page": "reminders",
-                         "tip": r["text"]})
-        if playing:
-            acts.append({"key": "media", "icon": "audio-x-generic-symbolic", "accent": "green", "page": "home",
-                         "art": c.art, "tip": f"{m['title']} · {m.get('artist') or ''}".rstrip(" ·")})
         if au and not playing and not au.call and au.audible and au.outputs:
             acts.append({"key": "audio", "icon": "audio-speakers-symbolic", "accent": "green", "page": "home",
                          "tip": "Sonando: " + ", ".join(au.outputs)})
-        p = c.pomo
-        if p.active:
-            acts.append({"key": "pomo", "icon": "timer-symbolic", "accent": "red" if p.phase == "work" else "green",
-                         "page": "pomo", "progress": 1 - p.left() / p.length(p.phase),
-                         "tip": f"{Pomodoro.LABEL[p.phase]} · {fmt_secs(p.left())}"})
         if timer_left is not None:
             acts.append({"key": "timer", "icon": "alarm-symbolic", "accent": "orange", "page": "timer",
                          "progress": 1 - timer_left / max(1, c.timer_total),
@@ -487,7 +579,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self.stack.set_size_request(w, max(1, h - self._bub_ext))
         else:
             self.stack.set_size_request(max(1, w - self._bub_ext), h)
-        self.resize(w, h)
+        self.resize(w + self.pad[0] + self.pad[2], h + self.pad[1] + self.pad[3])
         self._place()
         self.queue_draw()
         if settled:
@@ -512,6 +604,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             nat = self.c_box.get_preferred_height_for_width(H)[1]
             low = 150 if self.c_center.get_visible_child_name() == "level" else 84
             size = (H, max(low, min(300, nat + 4)))
+        self._set_pad(name == "card")
         bub = [a for a in self._acts if a["key"] not in self._shown][:BUB_MAX] if name == "compact" else []
         if [a["key"] for a in bub] != [a["key"] for a in self.bubbles] or bub:
             self._set_bubbles(bub)
@@ -665,7 +758,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         w, h = max(1, round(self.cur[0])), max(1, round(self.cur[1]))
         mw, mh = self._mon_size()
         x, y = self._target_xy(w, h)
-        x, y = round(x + self.poff[0]), round(y + self.poff[1])
+        pl, pt, pr, pb = self.pad
+        w, h = w + pl + pr, h + pt + pb                    # la ventana incluye el espacio de la sombra
+        x = max(0, min(round(x + self.poff[0]) - pl, mw - w))
+        y = max(0, min(round(y + self.poff[1]) - pt, mh - h))
         self._last_xy = (x, y)
         edge = None if self.drag and self.drag["moving"] else self.core.dock["edge"]
         E = GtkLayerShell.Edge
@@ -725,9 +821,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             return
         lb.set_ellipsize(Pango.EllipsizeMode.NONE)   # GTK ignora el giro si hay elipsis
         lb.set_justify(Gtk.Justification.CENTER)
-        if re.fullmatch(r"\d{1,2}:\d{2}", text):     # hora o temporizador: 14 / 05
+        hmm = re.fullmatch(r"(\d{1,2}):(\d{2})(?: ?[ap]m)?", text)
+        if hmm:                                      # hora o temporizador: 14 / 05
             lb.set_angle(0)
-            lb.set_text(text.replace(":", "\n"))
+            lb.set_text(f"{hmm.group(1)}\n{hmm.group(2)}")
         elif len(text) <= 3:
             lb.set_angle(0)
             lb.set_text(text)
@@ -838,7 +935,11 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
 
     # ── compacta ──
     def _compact(self, left=None, icon_name=None, accent=None, text="", level=None,
-                 right=None, right_text="", right_accent=None, xalign=0.0, text_accent=None, wkind=None):
+                 right=None, right_text="", right_accent=None, xalign=0.0, text_accent=None, wkind=None,
+                 clock=True):
+        self.c_time.set_visible(clock)
+        if clock:
+            self._vtext(self.c_time, hm(), 8)
         self.c_wicon.set_visible(wkind is not None)
         if wkind:
             self.c_wicon.set_kind(wkind)
@@ -872,6 +973,13 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         timer_left = (c.timer_end - now) if c.timer_end else None
         self._update_home(c, m, playing, timer_left)
         self._fill_lists()
+        if self.hover:
+            now_hm = hm()
+            for clk in getattr(self, "_page_clocks", ()):
+                if clk.get_text() != now_hm:
+                    clk.set_text(now_hm)
+            if playing and self.page == "home":
+                c.audio.detail_until = time.monotonic() + 1.5     # espectro detallado para el reproductor
         eq_on = False
         p = c.pomo
         pomo_on = p.active
@@ -895,22 +1003,41 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         elif c.event and now < c.event["until"]:
             self._shown = {a["key"] for a in self._acts}     # durante un aviso, sin burbujas
             self._show_event(c.event)
-        elif c.recorder.active:
-            self._shown = {"rec"}
-            self._compact("icon", "media-record-symbolic", "red", text="Grabando", text_accent="red",
-                          right="label", right_text=fmt_secs(c.recorder.elapsed()), right_accent="red")
-            self._show("compact", (190, H))
         elif "call" in akeys:
             self._shown = {"call"}
             au = c.audio
             self._compact("icon", "call-start-symbolic", "green",
-                          text=f"{au.call} · {fmt_secs(time.monotonic() - au.call_since)}", text_accent="green",
+                          text=f"En llamada · {fmt_secs(time.monotonic() - au.call_since)}", text_accent="green",
                           right="eq")
             self.c_eq.color = GREEN
             eq_on = True
             nat = self._natural("compact", 0)
-            self._show("compact", (max(200, min(320, nat + 4)), H))
-        elif c.feature("deploys") and c.deploys.active():
+            self._show("compact", (max(200, min(360, nat + 4)), H))
+        elif playing:
+            self._shown = {"media"}
+            self._compact("art", text=m["title"], right="eq")
+            eq_on = True
+            self._show("compact", (300 + self._tw(), H))
+        elif pomo_on:
+            self._shown = {"pomo"}
+            self._compact("icon", "timer-symbolic", pomo_acc,
+                          text=f"{Pomodoro.LABEL[p.phase]}  {fmt_secs(p.left())}", text_accent=pomo_acc,
+                          right="label" if not p.running else None, right_text="En pausa")
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(190, min(360, nat + 4)), H))
+        elif c.recorder.active:
+            self._shown = {"rec"}
+            self._compact("icon", "media-record-symbolic", "red", text="Grabando", text_accent="red",
+                          right="label", right_text=fmt_secs(c.recorder.elapsed()), right_accent="red")
+            self._show("compact", (190 + self._tw(), H))
+        elif "reminder" in akeys:
+            self._shown = {"reminder"}
+            r = c.reminders.next()
+            self._compact("icon", "alarm-symbolic", "blue", text=r["text"],
+                          right="label", right_text=fmt_secs(max(0, r["at"] - time.time())), right_accent="blue")
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(200, min(380, nat + 4)), H))
+        elif "deploy" in akeys:
             self._shown = {"deploy"}
             d = c.deploys.active()[0]
             more = len(c.deploys.active()) - 1
@@ -918,8 +1045,8 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                           text=f"{d['name']} · {d['env']}" + (f" (+{more})" if more else ""),
                           right="label", right_text=fmt_secs(time.time() - d["created"]), right_accent="orange")
             nat = self._natural("compact", 0)
-            self._show("compact", (max(220, min(380, nat + 4)), H))
-        elif c.feature("downloads") and c.downloads.active:
+            self._show("compact", (max(220, min(420, nat + 4)), H))
+        elif "download" in akeys:
             self._shown = {"download"}
             d = c.downloads.main()
             n = len(c.downloads.active)
@@ -927,26 +1054,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self._compact("icon", "folder-download-symbolic", "blue",
                           text=d["name"] + (f" (+{n - 1})" if n > 1 else ""),
                           right="label", right_text=rate, right_accent="blue")
-            self._show("compact", (300, H))
-        elif c.feature("reminders") and c.reminders.next() and c.reminders.next()["at"] - time.time() < 300:
-            self._shown = {"reminder"}
-            r = c.reminders.next()
-            self._compact("icon", "alarm-symbolic", "blue", text=r["text"],
-                          right="label", right_text=fmt_secs(max(0, r["at"] - time.time())), right_accent="blue")
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(200, min(340, nat + 4)), H))
-        elif playing:
-            self._shown = {"media", "pomo" if pomo_on else "timer" if timer_left is not None else "media"}
-            if pomo_on:
-                self._compact("art", text=m["title"], right="label", right_text=fmt_secs(p.left()),
-                              right_accent=pomo_acc)
-            elif timer_left is not None:
-                self._compact("art", text=m["title"], right="label", right_text=fmt_secs(timer_left),
-                              right_accent="orange")
-            else:
-                self._compact("art", text=m["title"], right="eq")
-                eq_on = True
-            self._show("compact", (300, H))
+            self._show("compact", (300 + self._tw(), H))
         elif "audio" in akeys:
             self._shown = {"audio"}
             outs = c.audio.outputs
@@ -955,32 +1063,33 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self.c_eq.color = GREEN
             eq_on = True
             nat = self._natural("compact", 0)
-            self._show("compact", (max(190, min(300, nat + 4)), H))
-        elif pomo_on:
-            self._shown = {"pomo"}
-            self._compact("icon", "timer-symbolic", pomo_acc,
-                          text=f"{Pomodoro.LABEL[p.phase]}  {fmt_secs(p.left())}", text_accent=pomo_acc,
-                          right="label" if not p.running else None, right_text="En pausa")
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(190, min(320, nat + 4)), H))
+            self._show("compact", (max(190, min(340, nat + 4)), H))
         elif timer_left is not None:
             self._shown = {"timer"}
             self._compact("icon", "alarm-symbolic", "orange", text=fmt_secs(timer_left), xalign=0.5,
                           text_accent="orange")
-            self._show("compact", (170, H))
+            self._show("compact", (170 + self._tw(), H))
         else:
             dot = c.unread > 0
             wd = c.weather.data if c.feature("weather") else None
             self._compact("icon" if dot else None, "preferences-system-notifications-symbolic", "red",
-                          text=time.strftime("%H:%M"), xalign=0.5 if not wd else 0.0,
+                          text=hm(), xalign=0.5 if not wd else 0.0,
                           right="label" if wd else None, right_text=f"{wd['temp']:.0f}°" if wd else "",
-                          wkind=wd.get("kind") if wd else None)
-            self._show("compact", ((209 if dot else 189) if wd else (150 if dot else 130), H))
+                          wkind=wd.get("kind") if wd else None, clock=False)
+            nat = self._natural("compact", 0)
+            low = (209 if dot else 189) if wd else (150 if dot else 130)
+            self._show("compact", (max(low, nat + 4), H))
         if c.alert_until and now >= c.alert_until:
             c.alert_until = None
         self.c_eq.set_playing(eq_on)
         self._set_glow(eq_on and self.view == "compact" and c.feature("audio") and c.audio.levels is not None)
         return False
+
+    def _tw(self):
+        """Ancho extra de la hora en la píldora horizontal (para los tamaños fijos)."""
+        if self.vertical or not self.c_time.get_visible():
+            return 0
+        return self.c_time.get_preferred_width()[1] + 9
 
     def _show_event(self, ev):
         if ev["kind"] == "card":
@@ -990,7 +1099,11 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             else:
                 self.k_icon.set_from_icon_name(ev.get("icon") or "dialog-information-symbolic", Gtk.IconSize.DND)
                 self.k_left.set_visible_child_name("icon")
-            self.k_app.set_text(ev.get("app", ""))
+            self.k_app.set_text(f"{ev.get('app', '')}  ·  {hm()}".lstrip(" ·"))
+            rgb = self._card_color(ev)
+            if rgb != self._card_rgb:
+                self._card_rgb = rgb
+                self.queue_draw()
             self.k_title.set_text(ev.get("title", ""))
             self.k_body.set_text(ev.get("body", ""))
             self.k_body.set_visible(bool(ev.get("body")))
@@ -1004,7 +1117,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                   "audio-volume-medium-symbolic" if v < 0.67 else "audio-volume-high-symbolic")
             self._compact("icon", ic, level=0 if muted else min(v, 1.0), right="label",
                           right_text="Silencio" if muted else f"{round(v * 100)}%")
-            self._show("compact", (290, H))
+            self._show("compact", (290 + self._tw(), H))
         else:
             self._compact("icon", ev.get("icon"), ev.get("accent"), text=ev.get("text", ""),
                           right="label" if ev.get("right") else None, right_text=ev.get("right", ""),

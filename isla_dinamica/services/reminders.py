@@ -69,21 +69,21 @@ def _plus_days(ts, n):
 def when(ts):
     """«en 12 min · 15:30», «mañana 09:00», «lun 24 · 09:00»."""
     d = ts - time.time()
-    hm = time.strftime("%H:%M", time.localtime(ts))
+    hm_ = hm(ts)
     if d < 60:
-        return f"ahora · {hm}"
+        return f"ahora · {hm_}"
     if d < 3600:
-        return f"en {int(d // 60) + (1 if d % 60 else 0)} min · {hm}"
+        return f"en {int(d // 60) + (1 if d % 60 else 0)} min · {hm_}"
     today = time.localtime()
     lt = time.localtime(ts)
     days = (time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)) -
             time.mktime((today.tm_year, today.tm_mon, today.tm_mday, 0, 0, 0, 0, 0, -1))) / 86400
     if round(days) == 0:
         h, m = int(d // 3600), int(d % 3600 // 60)
-        return f"en {h} h {m:02d} min · {hm}" if m else f"en {h} h · {hm}"
+        return f"en {h} h {m:02d} min · {hm_}" if m else f"en {h} h · {hm_}"
     if round(days) == 1:
-        return f"mañana · {hm}"
-    return f"{DIAS[lt.tm_wday][:3]} {lt.tm_mday} · {hm}"
+        return f"mañana · {hm_}"
+    return f"{DIAS[lt.tm_wday][:3]} {lt.tm_mday} · {hm_}"
 
 
 class Reminders:

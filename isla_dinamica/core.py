@@ -34,6 +34,7 @@ class Core:
         self.drives = Drives(lambda: self.changed("usb"), self._on_drive)
         self.power = Power(sysbus, bus)
         self.config = Config()
+        self.feature("clock24")
         self._rain_warned = None
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
@@ -95,10 +96,14 @@ class Core:
 
     # ── funciones activables (página «Más») ──
     def feature(self, name):
-        return self.config.data["features"].get(name, True)
+        on = self.config.data["features"].get(name, True)
+        if name == "clock24":
+            CLOCK["h24"] = on
+        return on
 
     def set_feature(self, name, on):
         self.config.data["features"][name] = bool(on)
+        self.feature(name)
         try:
             self.config.save()
         except OSError:
@@ -139,12 +144,12 @@ class Core:
         if not name or name == "Unknown":
             name = GLib.get_user_name()
         if back:
-            right = f"{self.battery.percent:.0f}%" if self.battery.present else time.strftime("%H:%M")
+            right = f"{self.battery.percent:.0f}%" if self.battery.present else hm()
             self.show_event(3.5, kind="pill", icon="weather-clear-symbolic", text=f"Bienvenido de vuelta, {name}",
                             right=right)
         else:
             self.show_event(3.5, kind="pill", icon="face-smile-symbolic", text=f"Hola, {name}",
-                            right=time.strftime("%H:%M"))
+                            right=hm())
         return False
 
     def _on_sleep(self, _c, _s, _p, _i, _sig, params):
@@ -300,9 +305,9 @@ class Core:
         if not self.feature("reminders"):
             return
         play_sound("alarm-clock-elapsed.oga", "complete.oga")
-        hm = time.strftime("%H:%M", time.localtime(r["at"]))
+        hm_ = hm(r["at"])
         self.show_event(20.0, kind="card", icon="alarm-symbolic",
-                        app=f"Recordatorio · pendiente desde las {hm}" if late else f"Recordatorio · {hm}",
+                        app=f"Recordatorio · pendiente desde las {hm_}" if late else f"Recordatorio · {hm_}",
                         title=r["text"], body="Clic para posponer 10 min",
                         action=lambda: (self.reminders.snooze(r, 10),
                                         self.show_event(2.0, kind="pill", icon="alarm-symbolic", accent="blue",

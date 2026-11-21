@@ -59,5 +59,5 @@ class DeploysPage:
             self._empty(self.dp_list, "Sin despliegues recientes en tus repos")
         self.dp_list.show_all()
         self.dp_status.set_text("Actualizando…" if dp.loading else dp.error or
-                                (f"{len(dp.repos)} repos vigilados · {time.strftime('%H:%M', time.localtime(dp.updated))}"
+                                (f"{len(dp.repos)} repos vigilados · {hm(dp.updated)}"
                                  if dp.updated else ""))

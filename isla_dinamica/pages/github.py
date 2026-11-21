@@ -70,7 +70,7 @@ class GitHubPage:
                     self._empty(self.gh_list, empty)
         self.gh_list.show_all()
         st = ("Actualizando…" if gh.loading else gh.error if gh.state == "error" else
-              f"@{gh.login} · actualizado {time.strftime('%H:%M', time.localtime(gh.updated))}"
+              f"@{gh.login} · actualizado {hm(gh.updated)}"
               if gh.state == "ok" else "")
         self.gh_status.set_text(st)
         set_accent(self.gh_status, "red" if gh.state == "error" and not gh.loading else None)

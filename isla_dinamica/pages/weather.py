@@ -143,7 +143,7 @@ class WeatherPage:
         if d:
             self._fill_weather(w, d)
         status = "Actualizando…" if w.loading else (w.error or
-                                                     (f"Actualizado a las {time.strftime('%H:%M', time.localtime(d['updated']))} · Open-Meteo" if d else ""))
+                                                     (f"Actualizado a las {hm(d['updated'])} · Open-Meteo" if d else ""))
         self.we_status.set_text(status)
         set_accent(self.we_status, "red" if w.error and not w.loading else None)
 
