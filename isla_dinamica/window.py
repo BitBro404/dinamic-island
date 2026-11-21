@@ -546,6 +546,11 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if au and not playing and not au.call and au.audible and au.outputs:
             acts.append({"key": "audio", "icon": "audio-speakers-symbolic", "accent": "green", "page": "home",
                          "tip": "Sonando: " + ", ".join(au.outputs)})
+        pr = c.presence
+        if c.feature("presence") and pr.state in ("watching", "present"):
+            acts.append({"key": "presence", "icon": "view-reveal-symbolic",
+                         "accent": "green" if pr.state == "present" else "blue", "page": "presence",
+                         "tip": "Presencia · " + ("te ve" if pr.state == "present" else "mirando si hay alguien")})
         if timer_left is not None:
             acts.append({"key": "timer", "icon": "alarm-symbolic", "accent": "orange", "page": "timer",
                          "progress": 1 - timer_left / max(1, c.timer_total),
@@ -1000,6 +1005,14 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self._show_event(c.event)
         elif self.hover:
             self._show(self.page, (W_EXP, min(580, self._natural(self.page, W_EXP))))
+        elif c.feature("presence") and c.presence.state == "warning":
+            self._shown = {a["key"] for a in self._acts}     # cuenta atrás antes de bloquear: lo primero
+            left = c.presence.seconds_left()
+            self._compact("icon", "view-reveal-symbolic", "orange", text="Nadie frente a la pantalla",
+                          text_accent="orange", right="label",
+                          right_text=fmt_secs(left or 0), right_accent="orange")
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(260, min(380, nat + 4)), H))
         elif c.event and now < c.event["until"]:
             self._shown = {a["key"] for a in self._acts}     # durante un aviso, sin burbujas
             self._show_event(c.event)

@@ -11,21 +11,24 @@ def _pretty(name):
     return _NAMES.get(n.lower(), n[:1].upper() + n[1:] if n else "Una app")
 
 
-def camera_users():
-    """Procesos con /dev/video* abierto (solo los del usuario; ~10 ms)."""
+def camera_users(proc="/proc"):
+    """Procesos con /dev/video* abierto (solo los del usuario; ~10 ms).
+    La propia isla no cuenta: el sensor de presencia abre la cámara unos instantes."""
     users = set()
-    for pid in os.listdir("/proc"):
-        if not pid.isdigit():
+    me = str(os.getpid())
+    for pid in os.listdir(proc):
+        if not pid.isdigit() or pid == me:
             continue
         try:
-            for fd in os.scandir(f"/proc/{pid}/fd"):
-                try:
-                    if os.readlink(fd.path).startswith("/dev/video"):
-                        with open(f"/proc/{pid}/comm") as f:
-                            users.add(f.read().strip())
-                        break
-                except OSError:
-                    pass
+            with os.scandir(f"{proc}/{pid}/fd") as fds:
+                for fd in fds:
+                    try:
+                        if os.readlink(fd.path).startswith("/dev/video"):
+                            with open(f"{proc}/{pid}/comm") as f:
+                                users.add(f.read().strip())
+                            break
+                    except OSError:
+                        pass
         except OSError:
             pass
     named = {u for u in users if u not in _PIPEWIRE}

@@ -111,8 +111,11 @@ class HomePage:
         self.t_saver = Tile("power-profile-power-saver-symbolic", "Ahorro", m.toggle_saver)
         self.t_awake = Tile("caffeine-cup-full-symbolic", "Despierto", m.toggle_awake)
         self.t_care = Tile("battery-level-80-symbolic", "Cuidar batería", c.charge_limit.toggle)
+        self.t_presence = Tile("view-reveal-symbolic", "Presencia",
+                               lambda: c.set_feature("presence", not c.feature("presence")),
+                               lambda: self.go("presence"))
         tiles = [self.t_wifi, self.t_bt, self.t_air, self.t_dnd, self.t_dark,
-                 self.t_night, self.t_saver, self.t_awake]
+                 self.t_night, self.t_saver, self.t_awake, self.t_presence]
         if c.charge_limit.supported:
             tiles.append(self.t_care)
         cols = 5 if len(tiles) > 8 else 4
@@ -234,6 +237,10 @@ class HomePage:
         self.t_awake.set(md.awake, "Activado" if md.awake else "")
         lim = c.charge_limit
         self.t_care.set(lim.enabled, f"Hasta {lim.end}%" if lim.enabled else "Hasta 100%")
+        pres_on = c.feature("presence")
+        pst = c.presence.state if pres_on else "off"
+        self.t_presence.set(pres_on, presence_label("active" if pres_on and pst == "off" else pst),
+                            "view-reveal-symbolic" if pres_on else "view-conceal-symbolic")
 
         if c.unread:
             self.badge.set_text(str(min(c.unread, 99)))

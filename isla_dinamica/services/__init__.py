@@ -20,3 +20,4 @@ from .fx import *  # noqa: F401,F403
 from .recorder import *  # noqa: F401,F403
 from .gitwatch import *  # noqa: F401,F403
 from .audio import *  # noqa: F401,F403
+from .presence import *  # noqa: F401,F403
