@@ -325,6 +325,7 @@ CONFIG_PATH = os.path.join(GLib.get_user_config_dir(), "isla-dinamica", "config.
 DEFAULTS = {"city": None,
             "dock": {"edge": "top", "pos": 0.5},
             "features": {},       # función → activada (las que no aparecen están activadas)
+            "git_folders": ["~/Documentos/WM"],   # carpetas con repos que vigila «Proyectos»
             "pomodoro": {"work": 25, "short": 5, "long": 15, "every": 4, "auto": True}}
 
 
@@ -343,6 +344,8 @@ class Config:
                                      "pos": min(1.0, max(0.0, float(dock.get("pos", 0.5))))}
             self.data["features"] = {k: v for k, v in (loaded.get("features") or {}).items()
                                      if isinstance(v, bool)}
+            if isinstance(loaded.get("git_folders"), list):
+                self.data["git_folders"] = [str(p) for p in loaded["git_folders"] if p]
             self.data["pomodoro"].update({k: v for k, v in (loaded.get("pomodoro") or {}).items()
                                           if k in DEFAULTS["pomodoro"]})
         except (OSError, ValueError, AttributeError):

@@ -38,6 +38,7 @@ class Core:
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
+        self.git = GitWatch(self.config, lambda: self.changed("git"), self._on_git, lambda: self.feature("git"))
         self.recorder = Recorder(lambda: self._on_rec_change(), self._on_rec_done)
         self.reminders = Reminders(lambda: self.changed("reminders"), self._on_reminder)
         self._rm_minute = None
@@ -107,6 +108,8 @@ class Core:
             self.github.refresh()
         elif on and name == "deploys":
             self.deploys.refresh()
+        elif on and name in ("git", "fx"):
+            getattr(self, name).refresh()
         self.changed("features")
 
     def changed(self, kind=None):
@@ -244,6 +247,11 @@ class Core:
         else:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
+
+    def _on_git(self, kind, s):
+        n = s["behind"]
+        self.show_event(5.0, kind="pill", icon="emblem-synchronizing-symbolic", accent="blue",
+                        text=f"{s['name']}: {n} commit{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''} en {s['upstream']}")
 
     # ── grabación ──
     def record(self, monitor=None):

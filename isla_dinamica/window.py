@@ -391,8 +391,8 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
 
     def _leave_timeout(self):
         self._hover_src = None
-        if (self.pw_net and self.w_entry.has_focus()) or self.we_entry.has_focus():
-            return False          # escribiendo (contraseña del Wi-Fi o ciudad): no cerrar
+        if isinstance(self.get_focus(), Gtk.Entry) and self.get_focus().has_focus():
+            return False          # escribiendo (Wi-Fi, ciudad, recordatorio, carpeta…): no cerrar
         if self._inside:
             return False          # el ratón volvió
         self._set_hover(False)
