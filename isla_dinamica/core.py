@@ -43,6 +43,7 @@ class Core:
         self.reminders = Reminders(lambda: self.changed("reminders"), self._on_reminder)
         self._rm_minute = None
         self.fx = Fx(lambda: self.changed("fx"), self._on_fx_day, lambda: self.feature("fx"))
+        self.audio = AudioWatch(lambda: self.changed("audio"), lambda: self.feature("audio"))
         self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
         self.downloads = Downloads(lambda: self.changed("downloads"), self._on_download,
                                    lambda: self.feature("downloads"))

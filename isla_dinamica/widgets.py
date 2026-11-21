@@ -56,10 +56,52 @@ class Art(Gtk.DrawingArea):
         return False
 
 
+GREEN = (0.19, 0.82, 0.35)
+
+
+def vivid_color(pb, fallback=GREEN):
+    """Color llamativo de una carátula (para las barras y el brillo), legible sobre negro."""
+    import colorsys
+    if pb is None:
+        return fallback
+    try:
+        small = pb.scale_simple(12, 12, GdkPixbuf.InterpType.BILINEAR)
+    except (GLib.Error, TypeError):
+        return fallback
+    px, n, stride = small.get_pixels(), small.get_n_channels(), small.get_rowstride()
+    best, score = None, -1.0
+    buckets = {}
+    for y in range(12):
+        for x in range(12):
+            i = y * stride + x * n
+            r, g, b = px[i] / 255, px[i + 1] / 255, px[i + 2] / 255
+            h, s, v = colorsys.rgb_to_hsv(r, g, b)
+            if v < 0.15:
+                continue
+            k = int(h * 12)
+            acc = buckets.setdefault(k, [0.0, 0.0, 0.0, 0.0])
+            w = s * v
+            acc[0] += w
+            acc[1] += h * w
+            acc[2] += s * w
+            acc[3] += v * w
+    for k, (w, hs, ss, vs) in buckets.items():
+        if w > score and w > 0:
+            score, best = w, (hs / w, ss / w, vs / w)
+    if not best or best[1] < 0.18:
+        return fallback
+    h, s, v = best
+    return colorsys.hsv_to_rgb(h, min(0.85, max(0.5, s)), max(0.88, v))
+
+
 class Equalizer(Gtk.DrawingArea):
+    """Barras de audio. Con levels_fn (→ lista 0..1 o None) siguen el sonido real;
+    sin datos, se mueven solas."""
+
     def __init__(self, w=22, h=16):
         super().__init__()
         self.w, self.h, self.playing, self._tick = w, h, False, None
+        self.levels_fn, self.color, self._shown = None, GREEN, [0.0] * 4
         self.set_size_request(w, h)
         self.set_valign(Gtk.Align.CENTER)
         self.connect("draw", self._draw)
@@ -80,9 +122,15 @@ class Equalizer(Gtk.DrawingArea):
         t = time.monotonic()
         n, gap = 4, 3
         bw = (self.w - gap * (n - 1)) / n
-        cr.set_source_rgb(0.19, 0.82, 0.35)
+        cr.set_source_rgb(*self.color)
+        real = self.levels_fn() if (self.playing and self.levels_fn) else None
         for i in range(n):
-            if self.playing:
+            if self.playing and real:
+                target = real[i] if i < len(real) else 0.0
+                k = 0.55 if target > self._shown[i] else 0.18      # sube rápido, baja suave
+                self._shown[i] += (target - self._shown[i]) * k
+                hh = 3 + (self.h - 3) * self._shown[i]
+            elif self.playing:
                 v = 0.5 + 0.5 * math.sin(t * (6.0 + i * 1.7) + i * 1.3) * math.sin(t * (2.3 + i * 0.9))
                 hh = max(3, self.h * (0.25 + 0.75 * abs(v)))
             else:

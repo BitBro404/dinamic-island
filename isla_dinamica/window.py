@@ -130,6 +130,12 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self.c_right = Gtk.Stack()
         self.c_rlabel = label("", "c-text", xalign=1.0, ellipsize=False)
         self.c_eq = Equalizer()
+        self.c_eq.levels_fn = lambda: self.core.audio.levels if self.core.feature("audio") else None
+        self._eq_art = object()     # carátula de la que salió el color actual
+        self._art_color = GREEN
+        self._glow = 0.0            # brillo del borde (sigue el volumen)
+        self._glow_tick = None
+        self._glow_drawn = 0.0
         self.c_right.add_named(self.c_rlabel, "label")
         self.c_right.add_named(self.c_eq, "eq")
         self.c_dots = PrivacyDots()           # puntos de privacidad: en el extremo derecho
@@ -319,10 +325,32 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         cr.close_path()
         cr.set_source_rgb(0, 0, 0)
         cr.fill_preserve()
-        cr.set_source_rgba(1, 1, 1, 0.07)
-        cr.set_line_width(1)
+        if self._glow > 0.02:
+            cr.set_source_rgba(*self.c_eq.color, 0.10 + 0.6 * self._glow)
+            cr.set_line_width(1.5)
+        else:
+            cr.set_source_rgba(1, 1, 1, 0.07)
+            cr.set_line_width(1)
         cr.stroke()
         return False
+
+    def _set_glow(self, on):
+        """Mientras suena algo, el borde de la píldora brilla al ritmo del volumen."""
+        if on and self._glow_tick is None:
+            self._glow_tick = self.add_tick_callback(self._glow_step)
+        elif not on and self._glow_tick is not None:
+            self.remove_tick_callback(self._glow_tick)
+            self._glow_tick = None
+            self._glow = 0.0
+            self.queue_draw()
+
+    def _glow_step(self, *_):
+        lv = self.core.audio.level if self.core.audio.levels else 0.0
+        self._glow += (lv - self._glow) * (0.5 if lv > self._glow else 0.12)
+        if abs(self._glow - self._glow_drawn) > 0.04:     # redibujar solo si se nota
+            self._glow_drawn = self._glow
+            self.queue_draw()
+        return True
 
     RING = {"orange": (1.0, 0.62, 0.04), "green": (0.19, 0.82, 0.35), "red": (1.0, 0.27, 0.23),
             "blue": (0.04, 0.52, 1.0), None: (1.0, 1.0, 1.0)}
@@ -400,6 +428,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if c.recorder.active:
             acts.append({"key": "rec", "icon": "media-record-symbolic", "accent": "red", "page": "record",
                          "tip": f"Grabando · {fmt_secs(c.recorder.elapsed())}"})
+        au = c.audio if c.feature("audio") else None
+        if au and au.call:
+            acts.append({"key": "call", "icon": "call-start-symbolic", "accent": "green", "page": "home",
+                         "tip": f"En llamada · {au.call} · {fmt_secs(time.monotonic() - au.call_since)}"})
         if c.feature("deploys") and c.deploys.active():
             d = c.deploys.active()[0]
             acts.append({"key": "deploy", "icon": "emblem-synchronizing-symbolic", "accent": "orange",
@@ -414,6 +446,9 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if playing:
             acts.append({"key": "media", "icon": "audio-x-generic-symbolic", "accent": "green", "page": "home",
                          "art": c.art, "tip": f"{m['title']} · {m.get('artist') or ''}".rstrip(" ·")})
+        if au and not playing and not au.call and au.audible and au.outputs:
+            acts.append({"key": "audio", "icon": "audio-speakers-symbolic", "accent": "green", "page": "home",
+                         "tip": "Sonando: " + ", ".join(au.outputs)})
         p = c.pomo
         if p.active:
             acts.append({"key": "pomo", "icon": "timer-symbolic", "accent": "red" if p.phase == "work" else "green",
@@ -842,7 +877,12 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         pomo_on = p.active
         pomo_acc = "red" if p.phase == "work" else "green"
         self._acts = self._activities(c, m, playing, timer_left)
+        akeys = {a["key"] for a in self._acts}
         self._shown = set()
+        if c.art is not self._eq_art:             # color de las barras y del brillo según la carátula
+            self._eq_art = c.art
+            self._art_color = vivid_color(c.art)
+        self.c_eq.color = self._art_color if playing else GREEN
 
         if c.alert_until and now < c.alert_until:
             self.a_sub.set_text(f"Temporizador de {fmt_secs(c.timer_total)}")
@@ -860,6 +900,16 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self._compact("icon", "media-record-symbolic", "red", text="Grabando", text_accent="red",
                           right="label", right_text=fmt_secs(c.recorder.elapsed()), right_accent="red")
             self._show("compact", (190, H))
+        elif "call" in akeys:
+            self._shown = {"call"}
+            au = c.audio
+            self._compact("icon", "call-start-symbolic", "green",
+                          text=f"{au.call} · {fmt_secs(time.monotonic() - au.call_since)}", text_accent="green",
+                          right="eq")
+            self.c_eq.color = GREEN
+            eq_on = True
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(200, min(320, nat + 4)), H))
         elif c.feature("deploys") and c.deploys.active():
             self._shown = {"deploy"}
             d = c.deploys.active()[0]
@@ -897,6 +947,15 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                 self._compact("art", text=m["title"], right="eq")
                 eq_on = True
             self._show("compact", (300, H))
+        elif "audio" in akeys:
+            self._shown = {"audio"}
+            outs = c.audio.outputs
+            self._compact("icon", "audio-speakers-symbolic", None,
+                          text=outs[0] + (f" (+{len(outs) - 1})" if len(outs) > 1 else ""), right="eq")
+            self.c_eq.color = GREEN
+            eq_on = True
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(190, min(300, nat + 4)), H))
         elif pomo_on:
             self._shown = {"pomo"}
             self._compact("icon", "timer-symbolic", pomo_acc,
@@ -920,6 +979,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if c.alert_until and now >= c.alert_until:
             c.alert_until = None
         self.c_eq.set_playing(eq_on)
+        self._set_glow(eq_on and self.view == "compact" and c.feature("audio") and c.audio.levels is not None)
         return False
 
     def _show_event(self, ev):

@@ -4,6 +4,8 @@ from ..widgets import *  # noqa: F401,F403
 from ..services import *  # noqa: F401,F403
 from .registry import feature, page
 
+feature("audio", "Audio en vivo", "Barras que siguen el sonido real, brillo al ritmo y aviso de llamadas o de "
+        "apps que reproducen audio")
 feature("privacy", "Cámara y micrófono",
         "Punto verde (cámara) o naranja (micrófono) en la píldora mientras una app los usa")
 
