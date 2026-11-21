@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Isla dinámica
+Comment=Píldora tipo Dynamic Island arriba al centro
+Exec=/home/luis/.local/bin/isla-dinamica
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3
+NoDisplay=true
