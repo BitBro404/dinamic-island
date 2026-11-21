@@ -303,6 +303,32 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             row.pack_start(w, False, False, 0)
         return row
 
+    def _fold(self, box, key, title, total, today=0, refill=None, top=True):
+        """Encabezado de sección plegable (se recuerda en config «collapsed»); devuelve True si está abierta.
+        `today`: novedades del día, en un contador azul visible aunque la sección esté plegada.
+        `refill`: función que vuelve a dibujar la página al plegar/desplegar."""
+        closed = key in self.core.config.data["collapsed"]
+        row = Gtk.Box(spacing=6)
+        row.pack_start(icon("pan-end-symbolic" if closed else "pan-down-symbolic", px=12), False, False, 0)
+        row.pack_start(label(f"{title} · {total}", "section"), False, False, 0)
+        if today:
+            b = label(f"{today}  hoy", "badge new", ellipsize=False, xalign=0.5)
+            b.set_valign(Gtk.Align.CENTER)
+            row.pack_end(b, False, False, 0)
+        head = button("sechead", row, lambda: self._fold_toggle(key, refill), "Mostrar" if closed else "Ocultar")
+        if top:
+            head.set_margin_top(4)
+        box.pack_start(head, False, False, 0)
+        return not closed
+
+    def _fold_toggle(self, key, refill):
+        cfg = self.core.config
+        cur = cfg.data["collapsed"]
+        cfg.data["collapsed"] = [k for k in cur if k != key] if key in cur else cur + [key]
+        cfg.save()
+        if refill:
+            GLib.idle_add(lambda: refill() and False)   # no destruir el botón dentro de su propio clic
+
     @staticmethod
     def _empty(box, text):
         lb = label(text, "dim", xalign=0.5)
@@ -539,7 +565,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         if c.feature("deploys") and c.deploys.active():
             d = c.deploys.active()[0]
             acts.append({"key": "deploy", "icon": "emblem-synchronizing-symbolic", "accent": "orange",
-                         "page": "deploys", "tip": f"Desplegando {d['name']} · {d['env']}"})
+                         "page": "github", "tip": f"Desplegando {d['name']} · {d['env']}"})
         if c.feature("downloads") and c.downloads.active:
             acts.append({"key": "download", "icon": "folder-download-symbolic", "accent": "blue",
                          "page": "downloads", "tip": f"Descargando {c.downloads.main()['name']}"})

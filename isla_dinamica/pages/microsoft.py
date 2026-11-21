@@ -33,9 +33,9 @@ class MicrosoftPage:
                 ("outlook", "CORREO · OUTLOOK", "Sin correos. Aparecen aquí cuando Outlook web (abierto en "
                                                 "Chrome) avisa de un correo nuevo.")):
             items = [n for n in c.notifs if n.get("ms") == kind][:8]
-            head = label(f"{title} · {len(items)}", "section")
-            head.set_margin_top(6)
-            self.ms_list.pack_start(head, False, False, 0)
+            if not self._fold(self.ms_list, "ms_" + kind, title, len(items),
+                              today_count(n["time"] for n in items), self._fill_ms, top=kind != "teams"):
+                continue
             for n in items:
                 sub = (n["body"] + " · " if n["body"] else "") + ago(n["time"])
                 self.ms_list.pack_start(self._row(n["icon"], n["summary"] or n["app"], sub,

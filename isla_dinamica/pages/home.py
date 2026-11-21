@@ -157,11 +157,12 @@ class HomePage:
         # trabajo: GitHub, Teams y correo
         work = Gtk.Box(spacing=6)
         self.work_labels, self.work_buttons = {}, {}
-        for key, ic, txt, tip, target in (("github", GITHUB_APP, "GitHub", "Pull requests", "github"),
-                                        ("teams", TEAMS_APP, "Teams", "Mensajes de Teams", "ms"),
-                                        ("outlook", "mail-unread-symbolic", "Correo", "Correo de Outlook", "ms")):
+        for key, ics, txt, tip, target in (("github", (GITHUB_APP,), "GitHub", "Pull requests y despliegues", "github"),
+                                         ("ms", (TEAMS_APP, "mail-unread-symbolic"), "Teams y correo",
+                                          "Mensajes de Teams y correo de Outlook", "ms")):
             inner = Gtk.Box(spacing=7)
-            inner.pack_start(icon(ic, px=18), False, False, 0)
+            for ic in ics:
+                inner.pack_start(icon(ic, px=18), False, False, 0)
             inner.pack_start(label(txt, "small", ellipsize=False), False, False, 0)
             cnt = label("", "badge", xalign=0.5, ellipsize=False)
             cnt.set_valign(Gtk.Align.CENTER)
@@ -248,8 +249,7 @@ class HomePage:
         else:
             self.badge.hide()
         self._set_count("github", len(c.github.review))
-        self._set_count("teams", c.ms_unread["teams"])
-        self._set_count("outlook", c.ms_unread["outlook"])
+        self._set_count("ms", c.ms_unread["teams"] + c.ms_unread["outlook"])
 
         p = c.privacy
         self.h_priv.set_text(p.summary())
@@ -257,8 +257,7 @@ class HomePage:
         set_accent(self.h_priv, "green" if p.cam else "orange")
         self.h_w_btn.set_visible(c.feature("weather"))
         self.work_buttons["github"].set_visible(c.feature("github"))
-        self.work_buttons["teams"].set_visible(c.feature("ms"))
-        self.work_buttons["outlook"].set_visible(c.feature("ms"))
+        self.work_buttons["ms"].set_visible(c.feature("ms"))
         wd = c.weather.data
         if wd:
             self.h_w.set_text(f"{wd['temp']:.0f}° · {wd['desc']}")

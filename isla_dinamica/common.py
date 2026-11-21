@@ -81,6 +81,9 @@ button.link { padding: 1px 6px; border-radius: 8px; min-height: 0; }
 button.link label { font-size: 11px; font-weight: 600; }
 button.act { min-width: 49px; min-height: 46px; padding: 2px 0; border-radius: 12px;
              background: rgba(255,255,255,0.07); }
+button.sechead { padding: 2px 4px; border-radius: 8px; min-height: 0; }
+button.sechead:hover { background: rgba(255,255,255,0.08); }
+.badge.new { background: #0a84ff; color: white; padding: 0 6px; }
 button.row { padding: 6px 8px; border-radius: 10px; }
 button.big { min-width: 70px; min-height: 64px; border-radius: 16px; background: rgba(255,255,255,0.08); padding: 4px; }
 button.big:hover { background: rgba(255,255,255,0.18); }
@@ -135,6 +138,13 @@ def set_accent(widget, accent=None):
 def set_class(widget, cls, on):
     ctx = widget.get_style_context()
     (ctx.add_class if on else ctx.remove_class)(cls)
+
+
+def today_count(stamps, now=None):
+    """Cuántas marcas de tiempo (epoch) caen en el día de hoy (desde las 00:00 locales)."""
+    t = time.localtime(now if now is not None else time.time())
+    midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
+    return sum(1 for s in stamps if s and s >= midnight)
 
 
 def fmt_secs(s):
@@ -341,6 +351,7 @@ CONFIG_PATH = os.path.join(GLib.get_user_config_dir(), "isla-dinamica", "config.
 DEFAULTS = {"city": None,
             "dock": {"edge": "top", "pos": 0.5},
             "features": {},       # función → activada (las que no aparecen están activadas)
+            "collapsed": [],      # secciones plegadas (p. ej. «gh_merged»)
             "git_folders": ["~/Documentos/WM"],   # carpetas con repos que vigila «Proyectos»
             "pomodoro": {"work": 25, "short": 5, "long": 15, "every": 4, "auto": True},
             # sensor de presencia: minutos sin nadie, aviso previo (s), pausa (epoch) y horario (0 = lunes)
@@ -382,6 +393,8 @@ class Config:
                                      "pos": min(1.0, max(0.0, float(dock.get("pos", 0.5))))}
             self.data["features"] = {k: v for k, v in (loaded.get("features") or {}).items()
                                      if isinstance(v, bool)}
+            if isinstance(loaded.get("collapsed"), list):
+                self.data["collapsed"] = [k for k in loaded["collapsed"] if isinstance(k, str)]
             if isinstance(loaded.get("git_folders"), list):
                 self.data["git_folders"] = [str(p) for p in loaded["git_folders"] if p]
             self.data["pomodoro"].update({k: v for k, v in (loaded.get("pomodoro") or {}).items()

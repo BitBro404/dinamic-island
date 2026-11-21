@@ -11,7 +11,6 @@ from .power import PowerPage  # noqa: F401
 from .weather import WeatherPage  # noqa: F401
 from .github import GitHubPage  # noqa: F401
 from .microsoft import MicrosoftPage  # noqa: F401
-from .deploys import DeploysPage  # noqa: F401
 from .servers import ServersPage  # noqa: F401
 from .system import SystemPage  # noqa: F401
 from .network import NetworkPage  # noqa: F401
@@ -23,4 +22,4 @@ from .projects import ProjectsPage  # noqa: F401
 from .presence import PresencePage  # noqa: F401
 from .more import MorePage  # noqa: F401
 
-PAGE_CLASSES = (HomePage, WifiPage, BluetoothPage, ClipboardPage, NotificationsPage, UsbPage, TimerPage, PomodoroPage, PowerPage, WeatherPage, GitHubPage, MicrosoftPage, DeploysPage, ServersPage, SystemPage, NetworkPage, DownloadsPage, RemindersPage, FxPage, RecordPage, ProjectsPage, PresencePage, MorePage)
+PAGE_CLASSES = (HomePage, WifiPage, BluetoothPage, ClipboardPage, NotificationsPage, UsbPage, TimerPage, PomodoroPage, PowerPage, WeatherPage, GitHubPage, MicrosoftPage, ServersPage, SystemPage, NetworkPage, DownloadsPage, RemindersPage, FxPage, RecordPage, ProjectsPage, PresencePage, MorePage)
