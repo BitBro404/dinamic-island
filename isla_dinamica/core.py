@@ -39,6 +39,8 @@ class Core:
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
         self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
+        self.downloads = Downloads(lambda: self.changed("downloads"), self._on_download,
+                                   lambda: self.feature("downloads"))
         self.netmon = NetMon(lambda: self.changed("netmon"), self._on_net, lambda: self.feature("netmon"))
         self.sysmon = SysMon(lambda: self.changed("sysmon"), self._on_sysmon, lambda: self.feature("sysmon"))
         self.servers = Servers(lambda: self.changed("servers"), self._on_server, lambda: self.feature("servers"))
@@ -238,6 +240,15 @@ class Core:
         else:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
+
+    def _on_download(self, kind, d):
+        if kind == "done":
+            path = d["path"]
+            self.show_event(7.0, kind="card", icon="folder-download-symbolic", app="Descarga terminada",
+                            title=d["name"], body=f"{fmt_size(d['size'])} · clic para abrir",
+                            action=lambda: open_uri(Gio.File.new_for_path(path).get_uri()))
+        elif kind == "cancelled":
+            self.show_event(3.0, kind="pill", icon="folder-download-symbolic", text=f"Descarga cancelada · {d['name']}")
 
     def _on_net(self, kind, name):
         if kind == "vpn_on":

@@ -712,6 +712,14 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                           right="label", right_text=fmt_secs(time.time() - d["created"]), right_accent="orange")
             nat = self._natural("compact", 0)
             self._show("compact", (max(220, min(380, nat + 4)), H))
+        elif c.feature("downloads") and c.downloads.active:
+            d = c.downloads.main()
+            n = len(c.downloads.active)
+            rate = f"{fmt_size(int(d['speed']))}/s" if d["speed"] > 1024 else fmt_size(d["size"])
+            self._compact("icon", "folder-download-symbolic", "blue",
+                          text=d["name"] + (f" (+{n - 1})" if n > 1 else ""),
+                          right="label", right_text=rate, right_accent="blue")
+            self._show("compact", (300, H))
         elif playing:
             if pomo_on:
                 self._compact("art", text=m["title"], right="label", right_text=fmt_secs(p.left()),
