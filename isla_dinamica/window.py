@@ -109,6 +109,9 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self.c_eq = Equalizer()
         self.c_right.add_named(self.c_rlabel, "label")
         self.c_right.add_named(self.c_eq, "eq")
+        self.c_dots = PrivacyDots()           # puntos de privacidad: en el extremo derecho
+        self.c_dots.set_no_show_all(True)
+        box.pack_end(self.c_dots, False, False, 0)
         box.pack_end(self.c_right, False, False, 0)
         self.c_wicon = WeatherIcon(18)
         self.c_wicon.set_no_show_all(True)
@@ -331,6 +334,12 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         return child.get_preferred_height_for_width(width)[1]
 
     def _show(self, name, size):
+        if name == "compact":
+            p = self.core.privacy
+            self.c_dots.set_state(p.cam, p.mic)
+            self.c_dots.set_visible(bool(p.cam or p.mic))
+            if (p.cam or p.mic) and not self.vertical:
+                size = (size[0] + self.c_dots.count() * 12 + 6, size[1])   # sitio para los puntos
         if name == "compact" and self.vertical:
             nat = self.c_box.get_preferred_height_for_width(H)[1]
             low = 150 if self.c_center.get_visible_child_name() == "level" else 84

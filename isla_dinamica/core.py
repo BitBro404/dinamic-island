@@ -38,6 +38,7 @@ class Core:
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
+        self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
         self.deploys = Deploys(lambda: self.changed("deploys"), self._on_deploy, lambda: self.feature("deploys"))
         self.github = GitHub(lambda: self.changed("github"), self._on_github, lambda: self.feature("github"))
 
@@ -225,6 +226,15 @@ class Core:
             open_uri(url)
         elif not launch_desktop(GITHUB_APP):
             open_uri("https://github.com/pulls")
+
+    def _on_privacy(self, kind, apps):
+        who = ", ".join(apps)
+        if kind == "cam":
+            self.show_event(3.5, kind="pill", icon="camera-web-symbolic", accent="green",
+                            text=f"{who} está usando la cámara")
+        else:
+            self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
+                            text=f"{who} está usando el micrófono")
 
     def _on_deploy(self, kind, d):
         where = f"{d['name']} · {d['env']}"

@@ -2,7 +2,10 @@
 from ..common import *  # noqa: F401,F403
 from ..widgets import *  # noqa: F401,F403
 from ..services import *  # noqa: F401,F403
-from .registry import page
+from .registry import feature, page
+
+feature("privacy", "Cámara y micrófono",
+        "Punto verde (cámara) o naranja (micrófono) en la píldora mientras una app los usa")
 
 
 class HomePage:
@@ -26,6 +29,9 @@ class HomePage:
         bat.pack_start(self.h_bat, False, False, 0)
         side.pack_start(self.h_date, False, False, 0)
         side.pack_start(bat, False, False, 0)
+        self.h_priv = label("", "small", xalign=1.0, ellipsize=False)
+        self.h_priv.set_no_show_all(True)
+        side.pack_start(self.h_priv, False, False, 0)
         wbox = Gtk.Box(spacing=5)
         self.h_w_icon = WeatherIcon(18)
         self.h_w = label("Clima", "dim", ellipsize=False)
@@ -229,6 +235,10 @@ class HomePage:
         self._set_count("teams", c.ms_unread["teams"])
         self._set_count("outlook", c.ms_unread["outlook"])
 
+        p = c.privacy
+        self.h_priv.set_text(p.summary())
+        self.h_priv.set_visible(bool(p.cam or p.mic))
+        set_accent(self.h_priv, "green" if p.cam else "orange")
         self.h_w_btn.set_visible(c.feature("weather"))
         self.work_buttons["github"].set_visible(c.feature("github"))
         self.work_buttons["teams"].set_visible(c.feature("ms"))

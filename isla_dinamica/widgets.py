@@ -260,6 +260,43 @@ class WeatherIcon(Gtk.DrawingArea):
         return False
 
 
+class PrivacyDots(Gtk.DrawingArea):
+    """Puntos de privacidad: verde = cámara, naranja = micrófono."""
+    CAM, MIC = (0.19, 0.82, 0.35), (1.0, 0.62, 0.04)
+
+    def __init__(self):
+        super().__init__()
+        self.cam = self.mic = False
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_halign(Gtk.Align.CENTER)
+        self.connect("draw", self._draw)
+        self._resize()
+
+    def set_state(self, cam, mic):
+        if (cam, mic) != (self.cam, self.mic):
+            self.cam, self.mic = bool(cam), bool(mic)
+            self._resize()
+            self.queue_draw()
+
+    def count(self):
+        return int(self.cam) + int(self.mic)
+
+    def _resize(self):
+        n = self.count()
+        self.set_size_request(max(1, n * 8 + (n - 1) * 4), 8)
+
+    def _draw(self, _w, cr):
+        a = self.get_allocation()
+        x = (a.width - (self.count() * 8 + max(0, self.count() - 1) * 4)) / 2
+        for on, col in ((self.cam, self.CAM), (self.mic, self.MIC)):
+            if on:
+                cr.set_source_rgb(*col)
+                cr.arc(x + 4, a.height / 2, 4, 0, 2 * math.pi)
+                cr.fill()
+                x += 12
+        return False
+
+
 class TempBar(Gtk.DrawingArea):
     """Barra de rango mín–máx de un día, relativa al rango de toda la semana."""
 
