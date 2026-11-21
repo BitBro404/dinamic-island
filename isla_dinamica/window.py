@@ -413,7 +413,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                 self.core.event["until"] = max(self.core.event["until"], time.monotonic() + 3.0)
                 GLib.timeout_add(3100, self.core.refresh)
             self.card_hold = False
-            self.page = "home"
+            self.page = "record" if self.core.recorder.active else "home"
             self.pw_net = None
             self.w_pw.hide()
             self._confirm = None
@@ -704,6 +704,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self._show(self.page, (W_EXP, min(580, self._natural(self.page, W_EXP))))
         elif c.event and now < c.event["until"]:
             self._show_event(c.event)
+        elif c.recorder.active:
+            self._compact("icon", "media-record-symbolic", "red", text="Grabando", text_accent="red",
+                          right="label", right_text=fmt_secs(c.recorder.elapsed()), right_accent="red")
+            self._show("compact", (190, H))
         elif c.feature("deploys") and c.deploys.active():
             d = c.deploys.active()[0]
             more = len(c.deploys.active()) - 1

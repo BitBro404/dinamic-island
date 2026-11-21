@@ -38,6 +38,7 @@ class Core:
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
+        self.recorder = Recorder(lambda: self._on_rec_change(), self._on_rec_done)
         self.reminders = Reminders(lambda: self.changed("reminders"), self._on_reminder)
         self._rm_minute = None
         self.fx = Fx(lambda: self.changed("fx"), self._on_fx_day, lambda: self.feature("fx"))
@@ -244,6 +245,48 @@ class Core:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
 
+    # ── grabación ──
+    def record(self, monitor=None):
+        """Con monitor: graba esa pantalla. Sin monitor: eliges un área con slurp."""
+        def go(geom):
+            if self.recorder.start(geom):
+                for w in self.windows.values():
+                    w.page = "record"
+            else:
+                self.show_event(4.0, kind="pill", icon="dialog-error-symbolic", accent="red",
+                                text="No se pudo empezar a grabar")
+
+        def start():
+            if monitor is not None:
+                g = monitor.get_geometry()
+                go(f"{g.x},{g.y} {g.width}x{g.height}")
+            else:
+                self.set_hidden(True)
+
+                def picked(ok, out, _e):
+                    self.set_hidden(False)
+                    if ok and out.strip():
+                        go(out.strip())
+                run(["slurp", "-d", "-b", "00000099", "-c", "ff453aff", "-s", "00000000", "-w", "2"], picked)
+            return False
+        GLib.timeout_add(250, start)
+
+    def _on_rec_change(self):
+        self.changed("rec")
+
+    def _on_rec_done(self, path, secs):
+        for w in self.windows.values():
+            if w.page == "record" and not w.hover:
+                w.page = "home"
+        if not path:
+            self.show_event(6.0, kind="pill", icon="dialog-error-symbolic", accent="red",
+                            text=f"La grabación falló · {self.recorder.error or ''}".rstrip(" ·"))
+            return
+        size = os.path.getsize(path)
+        self.show_event(8.0, kind="card", icon="media-record-symbolic", app="Grabación guardada",
+                        title=os.path.basename(path), body=f"{fmt_secs(secs)} · {fmt_size(size)} · clic para abrir",
+                        action=lambda: open_uri(Gio.File.new_for_path(path).get_uri()))
+
     def _on_reminder(self, r, late=False):
         if not self.feature("reminders"):
             return
@@ -428,6 +471,8 @@ class Core:
                     break
         self.pomo.tick()
         self.reminders.tick()
+        if self.recorder.active:
+            self.changed("rec")
         minute = int(time.time() // 60)
         if minute != self._rm_minute:          # «en 12 min» se actualiza cada minuto
             self._rm_minute = minute

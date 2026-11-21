@@ -65,6 +65,8 @@ button.chip { background: rgba(255,255,255,0.10); border-radius: 14px; padding: 
 button.chip:hover { background: rgba(255,255,255,0.22); }
 button.chip label { font-weight: 600; font-size: 12px; }
 button.chip.danger label { color: #ff453a; }
+button.chip.on { background: #0a84ff; }
+button.chip.on label { color: white; }
 button.tile { min-width: 44px; min-height: 44px; padding: 0; border-radius: 22px;
               background: rgba(255,255,255,0.12); }
 button.tile:hover { background: rgba(255,255,255,0.22); }

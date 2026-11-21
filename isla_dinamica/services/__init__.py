@@ -17,3 +17,4 @@ from .netmon import *  # noqa: F401,F403
 from .downloads import *  # noqa: F401,F403
 from .reminders import *  # noqa: F401,F403
 from .fx import *  # noqa: F401,F403
+from .recorder import *  # noqa: F401,F403
