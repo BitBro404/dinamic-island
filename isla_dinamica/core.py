@@ -39,6 +39,7 @@ class Core:
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
         self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
+        self.servers = Servers(lambda: self.changed("servers"), self._on_server, lambda: self.feature("servers"))
         self.deploys = Deploys(lambda: self.changed("deploys"), self._on_deploy, lambda: self.feature("deploys"))
         self.github = GitHub(lambda: self.changed("github"), self._on_github, lambda: self.feature("github"))
 
@@ -235,6 +236,15 @@ class Core:
         else:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
+
+    def _on_server(self, kind, s):
+        where = f"{s['name']} · :{s['port']}"
+        if kind == "up":
+            self.show_event(3.0, kind="pill", icon="network-server-symbolic", accent="green", text=f"Listo · {where}")
+        elif kind == "stopped":
+            self.show_event(2.5, kind="pill", icon="process-stop-symbolic", text=f"Detenido · {where}")
+        else:
+            self.show_event(6.0, kind="pill", icon="dialog-error-symbolic", accent="red", text=f"Se cayó · {where}")
 
     def _on_deploy(self, kind, d):
         where = f"{d['name']} · {d['env']}"
