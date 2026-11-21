@@ -13,3 +13,4 @@ from .deploys import *  # noqa: F401,F403
 from .privacy import *  # noqa: F401,F403
 from .servers import *  # noqa: F401,F403
 from .sysmon import *  # noqa: F401,F403
+from .netmon import *  # noqa: F401,F403

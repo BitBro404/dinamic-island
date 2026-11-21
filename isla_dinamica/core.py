@@ -39,6 +39,7 @@ class Core:
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
         self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
+        self.netmon = NetMon(lambda: self.changed("netmon"), self._on_net, lambda: self.feature("netmon"))
         self.sysmon = SysMon(lambda: self.changed("sysmon"), self._on_sysmon, lambda: self.feature("sysmon"))
         self.servers = Servers(lambda: self.changed("servers"), self._on_server, lambda: self.feature("servers"))
         self.deploys = Deploys(lambda: self.changed("deploys"), self._on_deploy, lambda: self.feature("deploys"))
@@ -237,6 +238,18 @@ class Core:
         else:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
+
+    def _on_net(self, kind, name):
+        if kind == "vpn_on":
+            self.show_event(3.0, kind="pill", icon="network-vpn-symbolic", accent="blue", text=f"VPN conectada · {name}")
+        elif kind == "vpn_off":
+            self.show_event(4.0, kind="pill", icon="network-vpn-symbolic", accent="orange",
+                            text=f"VPN desconectada · {name}")
+        elif kind == "offline":
+            self.show_event(6.0, kind="pill", icon="network-offline-symbolic", accent="red", text="Sin Internet")
+        else:
+            self.show_event(3.0, kind="pill", icon="network-transmit-receive-symbolic", accent="green",
+                            text="Internet de vuelta")
 
     def _on_sysmon(self, kind, name, value):
         if kind == "cpu":
