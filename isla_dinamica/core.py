@@ -38,6 +38,7 @@ class Core:
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
+        self.deploys = Deploys(lambda: self.changed("deploys"), self._on_deploy, lambda: self.feature("deploys"))
         self.github = GitHub(lambda: self.changed("github"), self._on_github, lambda: self.feature("github"))
 
         # bienvenida al despertar / desbloquear
@@ -94,6 +95,8 @@ class Core:
             self.weather.refresh()
         elif on and name == "github":
             self.github.refresh()
+        elif on and name == "deploys":
+            self.deploys.refresh()
         self.changed("features")
 
     def changed(self, kind=None):
@@ -222,6 +225,17 @@ class Core:
             open_uri(url)
         elif not launch_desktop(GITHUB_APP):
             open_uri("https://github.com/pulls")
+
+    def _on_deploy(self, kind, d):
+        where = f"{d['name']} · {d['env']}"
+        if kind == "start":
+            self.show_event(3.0, kind="pill", icon="emblem-synchronizing-symbolic", accent="orange",
+                            text=f"Desplegando {where}")
+        elif d["state"] == "SUCCESS":
+            self.show_event(5.0, kind="pill", icon="emblem-ok-symbolic", accent="green", text=f"Desplegado · {where}")
+        else:
+            self.show_event(12.0, kind="card", icon="dialog-error-symbolic", app="Despliegue fallido",
+                            title=where, body=d["commit"] or d["repo"], action=lambda: open_uri(d["url"]))
 
     def _on_github(self, kind, p):
         ref = f"{p['repo']}#{p['num']}"

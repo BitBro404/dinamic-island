@@ -695,6 +695,14 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             self._show(self.page, (W_EXP, min(580, self._natural(self.page, W_EXP))))
         elif c.event and now < c.event["until"]:
             self._show_event(c.event)
+        elif c.feature("deploys") and c.deploys.active():
+            d = c.deploys.active()[0]
+            more = len(c.deploys.active()) - 1
+            self._compact("icon", "emblem-synchronizing-symbolic", "orange",
+                          text=f"{d['name']} · {d['env']}" + (f" (+{more})" if more else ""),
+                          right="label", right_text=fmt_secs(time.time() - d["created"]), right_accent="orange")
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(220, min(380, nat + 4)), H))
         elif playing:
             if pomo_on:
                 self._compact("art", text=m["title"], right="label", right_text=fmt_secs(p.left()),

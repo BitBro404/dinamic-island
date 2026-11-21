@@ -24,12 +24,13 @@ class MorePage:
         tools = self._tools()
         if tools:
             body.pack_start(label("HERRAMIENTAS", "section"), False, False, 0)
-            grid = Gtk.Grid(column_spacing=5, row_spacing=5, column_homogeneous=True)
+            grid = Gtk.Grid(column_spacing=5, row_spacing=5, column_homogeneous=True, halign=Gtk.Align.START)
             for i, t in enumerate(tools):
                 inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, valign=Gtk.Align.CENTER)
                 inner.pack_start(icon(t["icon"], px=18), False, False, 0)
                 inner.pack_start(label(t["text"], "time-small", xalign=0.5, ellipsize=False), False, False, 0)
                 b = button("act", inner, lambda pg=t["page"]: self.go(pg), t["tip"])
+                b.set_size_request(76, -1)
                 grid.attach(b, i % 5, i // 5, 1, 1)
                 self.more_tools.append((b, t))
             body.pack_start(grid, False, False, 0)

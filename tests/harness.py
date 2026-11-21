@@ -6,6 +6,7 @@
 
 - Detiene la isla que esté corriendo y arranca la versión de este proyecto.
 - Ignora el ratón real (no se abre ni se cierra sola mientras se prueba).
+- La página especial «pill» captura la isla cerrada (la píldora).
 - Por cada página: la abre, espera y guarda <out>/<página>.png (sólo la zona de la isla, monitor principal).
 - --setup archivo.py: debe definir setup(core) para inyectar datos falsos antes de abrir las páginas.
 - Al terminar vuelve a arrancar la isla instalada (~/.local/bin/isla-dinamica).
@@ -74,7 +75,8 @@ def main():
             g = w.monitor.get_geometry()
             x, y = w._last_xy
             ww, hh = w.get_allocated_width(), w.get_allocated_height()
-            path = os.path.join(a.out, f"{name}.png")
+            n = sum(1 for r in results if r[0] == name)
+            path = os.path.join(a.out, f"{name}.png" if not n else f"{name}-{n + 1}.png")
             # margen horizontal amplio: los paneles del escritorio desplazan un poco el origen
             geo = f"{g.x + x - 90},{g.y + y - 8} {ww + 180}x{hh + 16}"
             ok = subprocess.run(["grim", "-g", geo, path]).returncode == 0
@@ -86,8 +88,13 @@ def main():
                 return False
             name = queue.pop(0)
             for win in self.windows.values():
-                win.hover = True
-                win.go(name)
+                if name == "pill":          # la isla cerrada (píldora compacta)
+                    win.hover = False
+                    win.page = "home"
+                    win.refresh()
+                else:
+                    win.hover = True
+                    win.go(name)
             GLib.timeout_add(int(a.wait * 1000), lambda: (shoot(name), step()) and False)
             return False
 
