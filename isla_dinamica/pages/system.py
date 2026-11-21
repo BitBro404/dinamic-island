@@ -1,6 +1,12 @@
 """Monitor del sistema: CPU, RAM y temperatura con gráfica, y procesos que más consumen."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
+import subprocess
+
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear, label, set_accent
+from ..ui.widgets.charts import Spark
+from ..util.proc import launch_desktop
+from .base import Page
 from .registry import feature, page, tool
 
 feature("sysmon", "Monitor del sistema",
@@ -11,7 +17,8 @@ def _gb(b):
     return f"{b / 1024 ** 3:.1f} GB"
 
 
-class SystemPage:
+class SystemPage(Page):
+    """Sistema: CPU, RAM y temperatura con gráfica, y procesos que más consumen."""
     PAGES = {
         "system": page("_build_system", "_fill_system", ("sysmon",)),
     }

@@ -1,10 +1,18 @@
 """Grabar la pantalla (wf-recorder)."""
-from ..common import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import os
+
+from gi.repository import Gio, Gtk
+
+from ..services.recorder import Recorder, videos_dir
+from ..ui.gtk import button, icon, label, set_accent, set_class
+from ..util.fmt import fmt_secs
+from ..util.proc import open_uri
+from .base import Page
 from .registry import page, tool
 
 
-class RecordPage:
+class RecordPage(Page):
+    """Grabar: grabación de pantalla con o sin audio."""
     PAGES = {
         "record": page("_build_record", "_fill_record", ("rec",)),
     }

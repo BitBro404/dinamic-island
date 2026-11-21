@@ -1,5 +1,12 @@
 """Sensor de presencia: si no hay nadie frente a la cámara ni teclado/ratón, bloquear y apagar la pantalla."""
-from ..common import *  # noqa: F401,F403
+import os
+import subprocess
+import threading
+import time
+
+from gi.repository import GLib, Gio
+
+from ..util.proc import dbg, tied
 
 CHECK_EVERY = 10          # segundos entre revisiones de la cámara mientras estás inactivo
 _HELD = ("paused", "off_hours")
@@ -26,7 +33,8 @@ def in_schedule(dt, start="08:00", end="18:00", days=(0, 1, 2, 3, 4)):
 
 _LABELS = {"off": "Apagado", "no_cv": "Sin OpenCV", "off_hours": "Fuera de horario", "paused": "En pausa",
            "active": "Vigilando", "watching": "Vigilando", "present": "Te ve", "warning": "Bloqueando",
-           "locked": "Bloqueado"}
+           "locked": "Bloqueado", "lock_failed": "No se pudo bloquear"}
+LOCK_FAILED = "No se pudo bloquear la sesión: la pantalla sigue encendida"
 
 
 def presence_label(state):
@@ -224,12 +232,19 @@ class FaceDetector:
 
 
 def _budgie_lock():
+    """Bloquea la sesión. Devuelve True solo si algún bloqueador aceptó la orden: el de Budgie por D-Bus o,
+    si no está, `loginctl lock-session`. Con False, quien llama NO debe apagar la pantalla."""
     try:
         Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
             "org.buddiesofbudgie.BudgieScreenlock", "/org/buddiesofbudgie/Screenlock",
             "org.buddiesofbudgie.BudgieScreenlock", "Lock", None, None, 0, 5000, None)
+        return True
     except GLib.Error:
-        subprocess.run(["loginctl", "lock-session"], timeout=5, check=False)
+        pass
+    try:
+        return subprocess.run(["loginctl", "lock-session"], timeout=5, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 DEFAULT_ACTIONS = {
@@ -259,6 +274,7 @@ class Presence:
         self.mutex = threading.RLock()
         self.state, self.error, self.last_seen, self.test_result = "off", None, None, None
         self.screen_off, self._shown, self.idle = False, None, None
+        self.lock_failed = False      # el último intento de bloqueo falló (se limpia al volver a usar el equipo)
         self._sync()
         if start:
             self.idle = IdleWatch(self.check_after(), self._idle, self._active)
@@ -289,6 +305,7 @@ class Presence:
         with self.mutex:
             self.logic.input_active(now)
             was_off, self.screen_off = self.screen_off, False
+            self.lock_failed = False
         if was_off:
             self.actions["screen_on"]()
         self._notify()
@@ -328,11 +345,16 @@ class Presence:
                         self.last_seen = self.epoch()
                     st = lg.step(now)
                 if st == "lock":
-                    self.screen_off = True
                     st = "locked"
-                    self.actions["lock"]()
-                    self.actions["screen_off"]()
+                    if self.actions["lock"]():
+                        self.screen_off = True
+                        self.actions["screen_off"]()
+                    else:
+                        # sin bloqueo, apagar la pantalla dejaría la sesión abierta a oscuras: no se apaga
+                        self.lock_failed = True
                     self.post(self.on_lock)
+                if self.lock_failed and st == "locked":
+                    st, self.error = "lock_failed", LOCK_FAILED
                 self.state = st
         self._notify()
 
@@ -359,7 +381,7 @@ class Presence:
 
     def set_conf(self, key, value):
         """Cambia un ajuste si es válido (mismas reglas que al cargar config.json) y lo guarda."""
-        from ..common import _PRESENCE_OK
+        from ..config import _PRESENCE_OK
         if key not in _PRESENCE_OK or not _PRESENCE_OK[key](value):
             return False
         if self.conf.get(key) != value:

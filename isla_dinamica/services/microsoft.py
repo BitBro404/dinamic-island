@@ -1,5 +1,5 @@
 """Clasificación de avisos de Teams y Outlook."""
-from ..common import *  # noqa: F401,F403
+import re
 
 
 _ORIGIN_LINE = re.compile(r"^\s*[\w.-]+\.(?:com|net|org|io|us)\s*$", re.I)

@@ -186,18 +186,40 @@ borra el archivo y reinicia la isla.
 isla.py                   lanzador para desarrollo
 install.sh                instala en ~/.local y reinicia
 isla_dinamica/
+  __init__.py             versiones de GTK/Gdk/LayerShell (gi.require_version), una sola vez
   main.py                 arranque
-  core.py                 estado central, servicios y eventos
-  window.py               ventana, píldora, burbujas y prioridades
-  common.py               utilidades, CSS y configuración
-  widgets.py              widgets propios
-  services/               lógica sin interfaz (un servicio por archivo)
-  pages/                  páginas del panel (un mixin por archivo, registradas en pages/__init__.py)
+  config.py               preferencias (config.json): valores por defecto, validación, guardado 0600
+  core.py                 estado central: crea los servicios y guarda el estado
+  events.py               EventRouter: evento de un servicio → aviso de la píldora
+  capture.py              capturas (grim/slurp) y grabación de pantalla
+  window.py               ventana: une los mixins de ui/ con las páginas
+  ui/
+    style.py              tamaños de la píldora y hoja CSS
+    gtk.py                fábricas de widgets (label, icon, button…)
+    pill.py               PILL_ORDER y pick_pill: qué muestra la píldora (función pura)
+    pill_view.py          cómo se dibuja cada estado de la píldora
+    bubbles.py            burbujas de actividades (geometría pura + mixin)
+    dock.py               acople a los bordes y arrastre (geometría pura + mixin)
+    paint.py              fondo, brillo y color de las tarjetas (Cairo)
+    widgets/              widgets dibujados: carátula, ecualizador, clima, gráficos, casillas
+  util/
+    fmt.py                fechas, horas y duraciones en español
+    proc.py               lanzar comandos sin bloquear, abrir apps y URIs, sonidos
+    safety.py             qué URLs, archivos y apps se pueden abrir
+    net.py                fetch_json
+    links.py              apps web (Teams, GitHub, Outlook)
+  services/               lógica sin interfaz (un servicio por archivo; poller.py = temporizadores comunes)
+  pages/                  páginas del panel: una clase Page por archivo, listadas en pages/__init__.py
 tests/
   unit/                   pruebas unitarias (unittest)
   harness.py              arnés de capturas de pantalla
   fixtures/               datos falsos para el arnés
 ```
+
+Las dependencias van en un solo sentido: `util` y `config` no importan nada del resto del proyecto;
+`services` solo usa `util`/`config`; `ui` usa `util` y lee el estado de algunos servicios; `pages` usa `ui`,
+`util` y `services`; `window` y `core` lo unen todo. Ningún servicio importa nada de `ui` ni de `pages`. No hay
+`import *`: cada archivo dice de dónde sale cada nombre.
 
 ### Pruebas
 
@@ -225,10 +247,13 @@ burbujas).
 
 ### Añadir una página o función
 
-1. Crea `isla_dinamica/pages/<nombre>.py` con una clase mixin que defina `PAGES = {...}` y llame a
-   `feature()` y, si quieres un acceso en Más → Herramientas, a `tool()`.
-2. Regístrala en `isla_dinamica/pages/__init__.py`.
-3. Si necesita datos del sistema, crea un servicio en `isla_dinamica/services/` y créalo en `core.py`.
+1. Crea `isla_dinamica/pages/<nombre>.py` con una clase que herede de `Page` (`pages/base.py`), defina
+   `PAGES = {"nombre": page("_build_nombre")}` y, si quieres un acceso en Más → Herramientas,
+   `TOOLS = (tool(...),)`. Llama a `feature()` si la función se puede apagar.
+2. Añádela a `PAGE_CLASSES` en `isla_dinamica/pages/__init__.py`.
+3. Usa solo lo que `Page` ofrece (`self.core`, `self.go()`, `self._page()`, `self._row()`, `self._fold()`…) y,
+   si lo necesitas, los ganchos `live()` (cada segundo), `on_collapse()`, `typing()` y `waiting()`.
+4. Si necesita datos del sistema, crea un servicio en `isla_dinamica/services/` y créalo en `core.py`.
 
 ---
 

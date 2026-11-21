@@ -1,7 +1,16 @@
 """Página de inicio: reloj, música, volumen, ajustes rápidos y accesos."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..services.media import Volume
+from ..services.presence import presence_label
+from ..ui.gtk import button, icon, label, set_accent
+from ..ui.widgets.art import Art
+from ..ui.widgets.audio import Spectrum
+from ..ui.widgets.tile import Tile
+from ..ui.widgets.weather_icon import WeatherIcon
+from ..util.fmt import bat_icon, fecha, fmt_secs, hm
+from ..util.links import GITHUB_APP, TEAMS_APP
+from .base import Page
 from .registry import feature, page
 
 feature("clock24", "Hora en formato 24 h", "Apágalo para ver la hora en 12 h (3:58 pm)")
@@ -11,13 +20,15 @@ feature("privacy", "Cámara y micrófono",
         "Punto verde (cámara) o naranja (micrófono) en la píldora mientras una app los usa")
 
 
-class HomePage:
+class HomePage(Page):
+    """Inicio: reloj, fecha, batería, volumen, ajustes rápidos y accesos a las demás páginas."""
     PAGES = {
         "home": page("_build_home", open="_open_home"),
     }
 
     def _build_home(self):
         c = self.core
+        self._vol_lock = False     # mientras se arrastra la barra, no la mueve el volumen real
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
                       margin_start=14, margin_end=14, margin_top=12, margin_bottom=14)
         top = Gtk.Box(spacing=12)
@@ -185,7 +196,8 @@ class HomePage:
         if not self._vol_lock:
             Volume.set(scale.get_value() / 100)
 
-    def _update_home(self, c, m, playing, timer_left):
+    def live(self, c, m, playing, timer_left):
+        """Refresco de cada segundo: reloj, batería, música, clima y accesos."""
         self.h_clock.set_text(hm())
         self.h_date.set_text(fecha())
         b = c.battery
@@ -199,10 +211,9 @@ class HomePage:
         self.h_bat_icon.set_visible(b.present)
 
         self.h_media.set_visible(m is not None)
-        self.c_art.set_pixbuf(c.art)
         self.m_art.set_pixbuf(c.art)
-        self.m_spec.color = self._art_color if hasattr(self, "_art_color") else self.m_spec.color
-        self.m_spec.set_playing(playing and self.hover and self.page == "home")
+        self.m_spec.color = self.host._art_color
+        self.m_spec.set_playing(playing and self.hover and self.host.page == "home")
         if m:
             self.m_title.set_text(m["title"])
             self.m_artist.set_text(m["artist"] or m["album"])
@@ -264,27 +275,6 @@ class HomePage:
             self.h_w_icon.set_kind(wd.get("kind", "cloudy"))
         else:
             self.h_w.set_text("Cargando clima…" if c.weather.loading else "Clima")
-
-        p = c.pomo
-        acc = "red" if p.phase == "work" else "green"
-        self.po_phase.set_text(Pomodoro.LABEL[p.phase] + ("" if p.running or not p.active else " · en pausa"))
-        set_accent(self.po_phase, acc)
-        self.po_time.set_text(fmt_secs(p.left()))
-        set_accent(self.po_time, acc if p.active else None)
-        self.po_cycle.set_text(p.cycle_text())
-        self.po_play.set_from_icon_name("media-playback-pause-symbolic" if p.running else
-                                        "media-playback-start-symbolic", Gtk.IconSize.LARGE_TOOLBAR)
-
-        self.t_big.set_text(fmt_secs(timer_left) if timer_left is not None else "—")
-        set_accent(self.t_big, "orange" if timer_left is not None else None)
-        self.t_stop.set_visible(timer_left is not None)
-
-        for key, (btn, lb, txt) in self.pw_buttons.items():
-            confirming = self._confirm == key
-            set_class(btn, "confirm", confirming)
-            lb.set_text("¿Seguro?" if confirming else txt)
-        if not self._confirm:
-            self.pw_hint.set_text("")
 
     def _open_home(self):
         self.core.radios.refresh()

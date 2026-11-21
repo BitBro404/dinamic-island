@@ -1,11 +1,13 @@
 """Dispositivos Bluetooth."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear
+from .base import Page
 from .registry import page
 
 
-class BluetoothPage:
+class BluetoothPage(Page):
+    """Bluetooth: encender/apagar y conectar dispositivos emparejados."""
     PAGES = {
         "bt": page("_build_bt", "_fill_bt", ("bt",), "_open_bt"),
     }

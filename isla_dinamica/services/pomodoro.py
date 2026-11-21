@@ -1,8 +1,9 @@
 """Temporizador Pomodoro."""
-from ..common import *  # noqa: F401,F403
+import time
 
 
 class Pomodoro:
+    """Ciclo pomodoro (trabajo y descansos) sin interfaz."""
     LABEL = {"work": "Enfoque", "short": "Descanso", "long": "Descanso largo"}
 
     def __init__(self, config, on_phase_end, on_change):

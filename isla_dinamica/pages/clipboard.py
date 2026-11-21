@@ -1,11 +1,15 @@
 """Historial del portapapeles."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import re
+
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear, icon
+from .base import Page
 from .registry import page
 
 
-class ClipboardPage:
+class ClipboardPage(Page):
+    """Historial del portapapeles (sin secretos y con caducidad)."""
     PAGES = {
         "clip": page("_build_clip", "_fill_clip", ("clip",)),
     }

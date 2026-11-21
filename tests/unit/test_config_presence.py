@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from isla_dinamica import common  # noqa: E402
+from isla_dinamica import config  # noqa: E402
 
 DEFAULT = {"minutes": 5, "warn": 30, "paused_until": 0, "start": "08:00", "end": "18:00", "days": [0, 1, 2, 3, 4]}
 
@@ -15,18 +15,18 @@ DEFAULT = {"minutes": 5, "warn": 30, "paused_until": 0, "start": "08:00", "end":
 class ConfigPresenceTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.old = common.CONFIG_PATH
-        common.CONFIG_PATH = os.path.join(self.dir.name, "config.json")
+        self.old = config.CONFIG_PATH
+        config.CONFIG_PATH = os.path.join(self.dir.name, "config.json")
 
     def tearDown(self):
-        common.CONFIG_PATH = self.old
+        config.CONFIG_PATH = self.old
         self.dir.cleanup()
 
     def load(self, data=None):
         if data is not None:
-            with open(common.CONFIG_PATH, "w") as f:
+            with open(config.CONFIG_PATH, "w") as f:
                 json.dump(data, f)
-        return common.Config().data["presence"]
+        return config.Config().data["presence"]
 
     def test_defaults_without_file(self):
         self.assertEqual(self.load(), DEFAULT)
@@ -55,7 +55,7 @@ class ConfigPresenceTest(unittest.TestCase):
         self.assertEqual(self.load({"presence": {"days": []}})["days"], [])
 
     def test_feature_off_by_default(self):
-        self.assertFalse(common.Config().data["features"].get("presence", common.FEATURE_DEFAULTS["presence"]))
+        self.assertFalse(config.Config().data["features"].get("presence", config.FEATURE_DEFAULTS["presence"]))
 
 
 if __name__ == "__main__":

@@ -274,3 +274,10 @@ no es válida, se usa el valor por defecto.
 | `presence` | `minutes 5, warn 30, start 08:00, end 18:00, days [0..4]` | Presencia (los días van de 0 = lunes a 6 = domingo) |
 
 Para depurar, ejecuta `ISLA_DEBUG=1 python3 isla.py`: muestra en la terminal lo que detecta cada servicio.
+
+---
+
+## Para desarrolladores
+
+La estructura del código (qué hace cada carpeta y en qué sentido van las dependencias), las pruebas y cómo
+añadir una página están en la sección «4. Desarrollo» del [README](../README.md).

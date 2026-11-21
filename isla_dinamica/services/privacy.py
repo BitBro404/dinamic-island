@@ -1,5 +1,11 @@
 """¿Quién usa la cámara o el micrófono? (como los puntos de privacidad del iPhone)."""
-from ..common import *  # noqa: F401,F403
+import json
+import os
+import subprocess
+import threading
+import time
+
+from gi.repository import GLib
 
 _PIPEWIRE = ("pipewire", "wireplumber", "pipewire-pulse")
 _NAMES = {"chrome": "Chrome", "google-chrome": "Chrome", "msedge": "Edge", "firefox": "Firefox",

@@ -1,7 +1,11 @@
 """Monitor del sistema: CPU, RAM, temperatura y procesos que más consumen."""
 from collections import deque
 
-from ..common import *  # noqa: F401,F403
+import os
+import threading
+import time
+
+from gi.repository import GLib
 
 HISTORY = 40               # muestras (cada 3 s → 2 minutos)
 CPU_HOG, HOG_SECS = 90.0, 45     # % de un núcleo sostenido tantos segundos = «se come la CPU»
@@ -54,6 +58,7 @@ def _procs():
 
 
 class SysMon:
+    """CPU, RAM y temperatura con historial; avisa de procesos que consumen demasiado."""
     def __init__(self, on_change, on_alert, enabled=lambda: True):
         self.on_change, self.on_alert, self.enabled = on_change, on_alert, enabled
         self.cpu = deque(maxlen=HISTORY)

@@ -1,7 +1,11 @@
 """Recordatorios: escribe «qué y cuándo» y la isla te avisa."""
-from ..common import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import time
+
+from gi.repository import GLib, Gtk
+
+from ..ui.gtk import button, clear, icon, label, set_accent
 from ..services.reminders import parse, when
+from .base import Page
 from .registry import feature, page, tool
 
 feature("reminders", "Recordatorios", "Avisos a la hora que digas: «llamar a Ana en 20 min», «daily a las 9:30»")
@@ -9,7 +13,8 @@ feature("reminders", "Recordatorios", "Avisos a la hora que digas: «llamar a An
 QUICK = (("5 min", 5), ("15 min", 15), ("30 min", 30), ("1 h", 60), ("2 h", 120), ("Mañana", None))
 
 
-class RemindersPage:
+class RemindersPage(Page):
+    """Recordar: recordatorios escritos en lenguaje natural («en 10 min llamar a Ana»)."""
     PAGES = {
         "reminders": page("_build_reminders", "_fill_reminders", ("reminders",), "_open_reminders"),
     }

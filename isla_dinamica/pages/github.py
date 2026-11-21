@@ -1,7 +1,14 @@
 """Pull requests de GitHub."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import time
+
+from gi.repository import Gtk
+
+from ..services.github import GitHub
+from ..ui.gtk import button, clear, icon, label, set_accent
+from ..util.fmt import ago_long, fmt_secs, hm, today_count
+from ..util.links import GITHUB_APP
+from ..util.safety import open_web
+from .base import Page
 from .registry import feature, page
 
 feature("github", "GitHub", "Tus pull requests y avisos de revisiones y CI (consulta cada 3 min)")
@@ -14,7 +21,8 @@ DEPLOY_TXT = {"SUCCESS": ("Desplegado", "green", "emblem-ok-symbolic"),
               "INACTIVE": ("Reemplazado", None, "emblem-ok-symbolic")}
 
 
-class GitHubPage:
+class GitHubPage(Page):
+    """GitHub: revisiones pedidas, PR abiertas y fusionadas, y despliegues recientes, en secciones plegables."""
     PAGES = {
         "github": page("_build_github", "_fill_github", ("github", "deploys", "features"), "_open_github"),
     }
@@ -109,7 +117,7 @@ class GitHubPage:
 
     # ── Despliegues (Railway u otras plataformas que reportan a GitHub) ──
     def _deploy_row(self, ic, d, sub, acc):
-        return self._row(ic, d["name"], sub, lambda: self._collapse_then(lambda: open_uri(d["url"])),
+        return self._row(ic, d["name"], sub, lambda: self._collapse_then(lambda: open_web(d["url"])),
                          sub_accent=acc)
 
     def _fill_deploys_active(self):

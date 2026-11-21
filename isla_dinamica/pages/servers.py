@@ -1,13 +1,18 @@
 """Servidores de desarrollo locales: abrir en el navegador o detenerlos."""
-from ..common import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import GLib, Gtk
+
+from ..ui.gtk import button, clear, icon, label
+from ..util.fmt import hm
+from ..util.safety import open_web
+from .base import Page
 from .registry import feature, page, tool
 
 feature("servers", "Servidores locales",
         "Servidores de desarrollo en este equipo: abrirlos, detenerlos y aviso si se caen")
 
 
-class ServersPage:
+class ServersPage(Page):
+    """Servidores: servidores de desarrollo locales y sus puertos."""
     PAGES = {
         "servers": page("_build_servers", "_fill_servers", ("servers",), "_open_servers"),
     }
@@ -50,7 +55,7 @@ class ServersPage:
             if s["started"]:
                 sub += f" · desde las {hm(s['started'])}"
             extra = [button("ctrl", icon("web-browser-symbolic"), lambda u=s["url"]: self._collapse_then(
-                lambda: open_uri(u)), "Abrir en el navegador")]
+                lambda: open_web(u)), "Abrir en el navegador")]
             if s["mine"]:
                 extra.append(button("ctrl", icon("process-stop-symbolic"), lambda p=s["port"]: self._sv_stop(p),
                                     "Detener (pide confirmación)"))

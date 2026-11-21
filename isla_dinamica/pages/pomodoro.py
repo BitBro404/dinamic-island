@@ -1,11 +1,15 @@
 """Pomodoro."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..services.pomodoro import Pomodoro
+from ..ui.gtk import button, icon, label, set_accent
+from ..util.fmt import fmt_secs
+from .base import Page
 from .registry import page
 
 
-class PomodoroPage:
+class PomodoroPage(Page):
+    """Pomodoro: iniciar, pausar y ver el ciclo de trabajo/descanso."""
     PAGES = {
         "pomo": page("_build_pomo"),
     }
@@ -44,3 +48,15 @@ class PomodoroPage:
         grid.attach(auto, 1, 4, 1, 1)
         box.pack_start(grid, False, False, 0)
         return box
+
+    def live(self, c, m, playing, timer_left):
+        """Fase, tiempo y ciclo del pomodoro, cada segundo."""
+        p = c.pomo
+        acc = "red" if p.phase == "work" else "green"
+        self.po_phase.set_text(Pomodoro.LABEL[p.phase] + ("" if p.running or not p.active else " · en pausa"))
+        set_accent(self.po_phase, acc)
+        self.po_time.set_text(fmt_secs(p.left()))
+        set_accent(self.po_time, acc if p.active else None)
+        self.po_cycle.set_text(p.cycle_text())
+        self.po_play.set_from_icon_name("media-playback-pause-symbolic" if p.running else
+                                        "media-playback-start-symbolic", Gtk.IconSize.LARGE_TOOLBAR)

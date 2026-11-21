@@ -1,12 +1,21 @@
 """Descargas: en curso (con velocidad) y las últimas terminadas."""
-from ..common import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import os
+
+from gi.repository import GLib, Gio, Gtk
+
+from ..services.downloads import fmt_size
+from ..ui.gtk import button, clear, icon, label
+from ..util.fmt import ago_long
+from ..util.proc import open_uri
+from ..util.safety import safe_to_open
+from .base import Page
 from .registry import feature, page, tool
 
 feature("downloads", "Descargas", "Progreso de las descargas de Chrome en la píldora y aviso al terminar")
 
 
-class DownloadsPage:
+class DownloadsPage(Page):
+    """Descargas recientes: abrir el archivo (si es de un tipo seguro) o su carpeta."""
     PAGES = {
         "downloads": page("_build_downloads", "_fill_downloads", ("downloads",)),
     }
@@ -29,6 +38,14 @@ class DownloadsPage:
                 None, 0, 2000, None)
         except GLib.Error:
             open_uri(Gio.File.new_for_path(os.path.dirname(path)).get_uri())
+
+    def _open_download(self, path):
+        """Abre la descarga si es un documento o multimedia; lo demás (ejecutables, scripts, desconocido)
+        solo se muestra en su carpeta para que no quede a un clic de ejecutarse."""
+        if safe_to_open(os.path.basename(path)):
+            open_uri(Gio.File.new_for_path(path).get_uri())
+        else:
+            self._show_in_folder(path)
 
     def _fill_downloads(self):
         dl = self.core.downloads
@@ -59,8 +76,7 @@ class DownloadsPage:
                 lambda: self._show_in_folder(p)), "Mostrar en la carpeta")]
             self.dl_list.pack_start(self._row(names[0] if names else "text-x-generic-symbolic", f["name"],
                                               f"{fmt_size(f['size'])} · {ago_long(f['mtime'])}",
-                                              lambda p=f["path"]: self._collapse_then(
-                                                  lambda: open_uri(Gio.File.new_for_path(p).get_uri())),
+                                              lambda p=f["path"]: self._collapse_then(lambda: self._open_download(p)),
                                               extra), False, False, 0)
         if not dl.recent:
             self._empty(self.dl_list, "La carpeta de descargas está vacía")

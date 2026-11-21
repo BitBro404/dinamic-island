@@ -7,7 +7,13 @@ import array
 import math
 import threading
 
-from ..common import *  # noqa: F401,F403
+import json
+import subprocess
+import time
+
+from gi.repository import GLib
+
+from ..util.proc import tied
 from .privacy import _pretty
 
 __all__ = ["AudioWatch"]
@@ -45,6 +51,7 @@ def _ours(p):
 
 
 class AudioWatch:
+    """Escucha la salida de audio (PipeWire) y entrega niveles para el ecualizador y quién está sonando."""
     def __init__(self, on_change, enabled=lambda: True):
         self.on_change, self.enabled = on_change, enabled
         self.outputs = []          # apps reproduciendo (sin pausar)

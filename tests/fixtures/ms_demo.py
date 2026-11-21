@@ -1,7 +1,7 @@
 """Teams y correo con avisos falsos (2 de hoy, 1 de ayer) y «Correo» plegado. No toca ~/.config."""
 import time
 
-from isla_dinamica.common import TEAMS_APP
+from isla_dinamica.util.links import TEAMS_APP
 
 
 def setup(core):

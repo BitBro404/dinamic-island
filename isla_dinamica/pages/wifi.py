@@ -1,11 +1,13 @@
 """Redes Wi-Fi."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear, icon, label, set_accent
+from .base import Page
 from .registry import page
 
 
-class WifiPage:
+class WifiPage(Page):
+    """Wi-Fi: redes cercanas y conexión (la contraseña va por stdin, nunca en la línea de comandos)."""
     PAGES = {
         "wifi": page("_build_wifi", "_fill_wifi", ("wifi",), "_open_wifi"),
     }
@@ -17,6 +19,7 @@ class WifiPage:
         box.pack_start(self.w_status, False, False, 0)
         self.w_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.pack_start(self._scroller(self.w_list, 230), False, False, 0)
+        self.pw_net = None          # red de la que se está pidiendo la contraseña
         self.w_pw = Gtk.Box(spacing=8)
         self.w_entry = Gtk.Entry(hexpand=True, visibility=False)
         self.w_entry.connect("activate", lambda *_: self._wifi_password())
@@ -73,3 +76,12 @@ class WifiPage:
     def _open_wifi(self):
         self.core.wifi.refresh()
         self.core.wifi.scan()
+
+    def on_collapse(self):
+        """Al cerrar el panel se descarta la contraseña a medio escribir (no queda en el campo)."""
+        self.pw_net = None
+        self.w_entry.set_text("")
+        self.w_pw.hide()
+
+    def typing(self):
+        return bool(self.pw_net and self.w_entry.has_focus())

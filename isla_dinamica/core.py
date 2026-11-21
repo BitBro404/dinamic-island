@@ -1,7 +1,40 @@
 """Estado compartido por las islas de todas las pantallas."""
-from .common import *  # noqa: F401,F403
-from .services import *  # noqa: F401,F403
+import os
+import time
+
+from gi.repository import GLib, Gdk, GdkPixbuf, Gio
+
+from .config import Config, FEATURE_DEFAULTS
+from .services.audio import AudioWatch
+from .services.clipboard import Clipboard
+from .services.deploys import Deploys
+from .services.downloads import Downloads
+from .services.fx import Fx
+from .services.github import GitHub
+from .services.gitwatch import GitWatch
+from .services.lockguard import LockGuard, watch_session_lock
+from .services.media import Media, Volume
+from .services.microsoft import clean_body, ms_kind
+from .services.netmon import NetMon
+from .services.network import Bluetooth, Radios, Wifi
+from .services.notifications import Notifications
+from .services.pomodoro import Pomodoro
+from .services.power import Battery, ChargeLimit, Power
+from .services.presence import Presence
+from .services.privacy import Privacy
+from .services.recorder import Recorder
+from .services.reminders import Reminders
+from .services.servers import Servers
+from .services.sysmon import SysMon
+from .services.system import Drives, Modes
+from .services.weather import Weather
+from .util.fmt import CLOCK, hm
+from .util.links import GITHUB_APP, OUTLOOK_URL, TEAMS_APP
+from .util.proc import dbg, launch_desktop, open_uri, play_sound
+from .util.safety import desktop_matches_app, notif_debug_line, open_web
 from .window import IslandWindow
+from .events import EventRouter
+from .capture import Capture
 
 
 # ───────────────────────────── núcleo compartido ─────────────────────────────
@@ -19,49 +52,51 @@ class Core:
         self.unread = 0
         self._art_url, self._art_cache, self.art = None, {}, None
 
+        self.events = EventRouter(self)       # traduce los eventos de los servicios en avisos
         bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         sysbus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
         self.mpris = Media(bus)
-        self.volume = Volume(self._on_volume)
+        self.volume = Volume(self.events.volume)
         self.charge_limit = ChargeLimit(sysbus, lambda: self.changed("modes"))
-        self.battery = Battery(self._on_battery, self._charge_target)
+        self.battery = Battery(self.events.battery, self.charge_target)
         self.notif = Notifications(bus, self._on_notify, lambda: self.changed("modes"))
         self.clip = Clipboard(lambda: self.changed("clip"))
-        self.bt = Bluetooth(sysbus, lambda: self.changed("bt"), self._on_bt_connect)
+        self.bt = Bluetooth(sysbus, lambda: self.changed("bt"), self.events.bt_connect)
         self.wifi = Wifi(sysbus, lambda: self.changed("wifi"))
         self.radios = Radios(lambda: self.changed("modes"))
         self.modes = Modes(sysbus, bus, lambda: self.changed("modes"))
-        self.drives = Drives(lambda: self.changed("usb"), self._on_drive)
+        self.drives = Drives(lambda: self.changed("usb"), self.events.drive)
         self.power = Power(sysbus, bus)
         self.config = Config()
         self.feature("clock24")
-        self._rain_warned = None
         self.weather = Weather(self.config, self._on_weather)
-        self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
+        self.pomo = Pomodoro(self.config, self.events.pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
-        self.git = GitWatch(self.config, lambda: self.changed("git"), self._on_git, lambda: self.feature("git"))
-        self.recorder = Recorder(lambda: self._on_rec_change(), self._on_rec_done)
-        self.reminders = Reminders(lambda: self.changed("reminders"), self._on_reminder)
+        self.git = GitWatch(self.config, lambda: self.changed("git"), self.events.git, lambda: self.feature("git"))
+        self.capture = Capture(self)
+        self.recorder = Recorder(lambda: self.changed("rec"), self.capture.recording_done)
+        self.reminders = Reminders(lambda: self.changed("reminders"), self.events.reminder)
         self._rm_minute = None
-        self.fx = Fx(lambda: self.changed("fx"), self._on_fx_day, lambda: self.feature("fx"))
+        self.fx = Fx(lambda: self.changed("fx"), self.events.fx_day, lambda: self.feature("fx"))
         self.audio = AudioWatch(lambda: self.changed("audio"), lambda: self.feature("audio"))
-        self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
+        self.privacy = Privacy(lambda: self.changed("privacy"), self.events.privacy, lambda: self.feature("privacy"))
         self.presence = Presence(self.config, lambda: self.changed("presence"), lambda: self.changed("presence"),
                                  lambda: self.feature("presence"),
                                  in_call=lambda: bool(self.feature("audio") and self.audio.call))
-        self.downloads = Downloads(lambda: self.changed("downloads"), self._on_download,
+        self.downloads = Downloads(lambda: self.changed("downloads"), self.events.download,
                                    lambda: self.feature("downloads"))
-        self.netmon = NetMon(lambda: self.changed("netmon"), self._on_net, lambda: self.feature("netmon"))
-        self.sysmon = SysMon(lambda: self.changed("sysmon"), self._on_sysmon, lambda: self.feature("sysmon"))
-        self.servers = Servers(lambda: self.changed("servers"), self._on_server, lambda: self.feature("servers"))
-        self.deploys = Deploys(lambda: self.changed("deploys"), self._on_deploy, lambda: self.feature("deploys"))
-        self.github = GitHub(lambda: self.changed("github"), self._on_github, lambda: self.feature("github"))
+        self.netmon = NetMon(lambda: self.changed("netmon"), self.events.net, lambda: self.feature("netmon"))
+        self.sysmon = SysMon(lambda: self.changed("sysmon"), self.events.sysmon, lambda: self.feature("sysmon"))
+        self.servers = Servers(lambda: self.changed("servers"), self.events.server, lambda: self.feature("servers"))
+        self.deploys = Deploys(lambda: self.changed("deploys"), self.events.deploy, lambda: self.feature("deploys"))
+        self.github = GitHub(lambda: self.changed("github"), self.events.github, lambda: self.feature("github"))
 
         # bienvenida al despertar / desbloquear
         sysbus.signal_subscribe("org.freedesktop.login1", "org.freedesktop.login1.Manager", "PrepareForSleep",
                                 "/org/freedesktop/login1", None, Gio.DBusSignalFlags.NONE, self._on_sleep)
-        sysbus.signal_subscribe("org.freedesktop.login1", "org.freedesktop.login1.Session", "Unlock",
-                                None, None, Gio.DBusSignalFlags.NONE, lambda *_: self.welcome(True))
+        # sesión bloqueada → isla oculta y portapapeles vacío; al desbloquear vuelve con un saludo
+        self.lock = LockGuard(self._set_visible, self.clip.clear)
+        watch_session_lock(sysbus, self.lock, on_unlock=lambda: self.welcome(True))
 
         display = Gdk.Display.get_default()
         display.connect("monitor-added", lambda d, m: self._add_window(m))
@@ -78,6 +113,8 @@ class Core:
     def _add_window(self, monitor):
         if monitor not in self.windows:
             self.windows[monitor] = IslandWindow(self, monitor)
+            if self.lock.locked:                    # pantalla conectada con la sesión bloqueada
+                self.windows[monitor].hide()
 
     def _remove_window(self, _d, monitor):
         w = self.windows.pop(monitor, None)
@@ -132,8 +169,12 @@ class Core:
         return False
 
     def set_hidden(self, hidden):
+        """Ocultar un momento (capturas, grabación). Nunca vuelve a mostrar la isla con la sesión bloqueada."""
+        self.lock.request_visible(not hidden)
+
+    def _set_visible(self, visible):
         for w in self.windows.values():
-            (w.hide if hidden else w.show)()
+            (w.show if visible else w.hide)()
 
     # ── avisos ──
     def show_event(self, secs=3.0, **ev):
@@ -161,61 +202,14 @@ class Core:
             self.bt.refresh()
             GLib.timeout_add(1200, lambda: self.welcome(True))
 
-    def _on_weather(self):
-        self.changed("weather")
-        w = getattr(self, "weather", None)     # el primer aviso llega antes de asignarlo
-        d = w and w.data
-        soon = d and d.get("soon")
-        if soon:
-            key = time.strftime("%Y-%m-%d ") + soon["hour"]
-            if key != self._rain_warned:
-                self._rain_warned = key
-                storm = soon["kind"] == "storm"
-                self.show_event(4.0, kind="pill",
-                                icon="weather-storm-symbolic" if storm else "weather-showers-symbolic",
-                                accent="blue", text=f"{'Tormenta' if storm else 'Lluvia'} hacia las {soon['hour']}",
-                                right=f"{soon['pop']}%", right_accent="blue")
-
-    def _on_volume(self, v, muted):
-        self.show_event(1.8, kind="volume", value=v, muted=muted)
-
-    def _charge_target(self):
+    def charge_target(self):
+        """Tope de carga de la batería (80 si «Cuidar batería» está activo, si no 100)."""
         cl = getattr(self, "charge_limit", None)
         return cl.end if cl and cl.supported and cl.enabled else 100
 
-    def _on_battery(self, kind, pct):
-        if kind == "low":
-            play_sound("dialog-warning.oga", "bell.oga")
-            self.show_event(12.0, kind="card", icon="battery-caution-symbolic", app="Batería",
-                            title=f"Batería baja · {pct:.0f} %",
-                            body="Conecta el cargador para no perder tu trabajo.", action=None)
-            return
-        if kind == "full":
-            play_sound("complete.oga")
-            target = self._charge_target()
-            if target < 100:
-                title = f"Batería al {target} % · tope de cuidado"
-                body = (f"Se detuvo la carga en {target} % para cuidar la batería. "
-                        "Si necesitas el 100 %, apaga «Cuidar batería».")
-            else:
-                title = "Carga completa · 100 %"
-                body = "Ya puedes desconectar el cargador."
-            self.show_event(10.0, kind="card", icon="battery-full-charged-symbolic", app="Batería",
-                            title=title, body=body, action=None)
-            return
-        txt, acc, ic = {
-            "charging": ("Cargando", "green", bat_icon(pct, True)),
-            "unplugged": ("Con batería", None, bat_icon(pct, False)),
-            "low": ("Batería baja", "red", "battery-caution-symbolic"),
-        }[kind]
-        right = f"{pct:.0f}%"
-        if kind == "charging" and self.charge_limit.enabled:
-            right += f" · hasta {self.charge_limit.end}%"
-        self.show_event(4.5, kind="pill", icon=ic, accent=acc, text=txt, right=right, right_accent=acc)
-
     def _on_notify(self, n):
         n["ms"] = ms_kind(n)
-        dbg("aviso:", n["app"], "|", n["desktop"], "|", n["summary"], "->", n["ms"])
+        dbg(notif_debug_line(n, n["ms"]))
         if n["ms"]:
             n["body"] = clean_body(n["body"])
             n["app"] = "Microsoft Teams" if n["ms"] == "teams" else "Outlook"
@@ -235,8 +229,11 @@ class Core:
             self.open_teams()
         elif n.get("ms") == "outlook":
             open_uri(OUTLOOK_URL)
-        elif not launch_desktop(n.get("desktop") or "") and not launch_desktop(n["app"]):
-            self.notif.open_center()
+        else:
+            # solo se lanza la app que envió el aviso (el hint desktop-entry lo puede falsear cualquiera)
+            desk = n.get("desktop") or ""
+            if not (desktop_matches_app(desk, n["app"]) and launch_desktop(desk)) and not launch_desktop(n["app"]):
+                self.notif.open_center()
 
     def open_teams(self):
         if not launch_desktop(TEAMS_APP):
@@ -244,183 +241,23 @@ class Core:
 
     def open_github(self, url=None):
         if url:
-            open_uri(url)
+            open_web(url)
         elif not launch_desktop(GITHUB_APP):
             open_uri("https://github.com/pulls")
 
-    def _on_privacy(self, kind, apps):
-        who = ", ".join(apps)
-        if kind == "cam":
-            self.show_event(3.5, kind="pill", icon="camera-web-symbolic", accent="green",
-                            text=f"{who} está usando la cámara")
-        else:
-            self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
-                            text=f"{who} está usando el micrófono")
+    # capturas y grabación (las piden las páginas Inicio y Grabar)
+    def screenshot(self, monitor=None):
+        self.capture.screenshot(monitor)
 
-    def _on_git(self, kind, s):
-        n = s["behind"]
-        self.show_event(5.0, kind="pill", icon="emblem-synchronizing-symbolic", accent="blue",
-                        text=f"{s['name']}: {n} commit{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''} en {s['upstream']}")
-
-    # ── grabación ──
     def record(self, monitor=None):
-        """Con monitor: graba esa pantalla. Sin monitor: eliges un área con slurp."""
-        def go(geom):
-            if self.recorder.start(geom):
-                for w in self.windows.values():
-                    w.page = "record"
-            else:
-                self.show_event(4.0, kind="pill", icon="dialog-error-symbolic", accent="red",
-                                text="No se pudo empezar a grabar")
+        self.capture.record(monitor)
 
-        def start():
-            if monitor is not None:
-                g = monitor.get_geometry()
-                go(f"{g.x},{g.y} {g.width}x{g.height}")
-            else:
-                self.set_hidden(True)
+    def _on_weather(self):
+        self.changed("weather")
+        self.events.weather()
 
-                def picked(ok, out, _e):
-                    self.set_hidden(False)
-                    if ok and out.strip():
-                        go(out.strip())
-                run(["slurp", "-d", "-b", "00000099", "-c", "ff453aff", "-s", "00000000", "-w", "2"], picked)
-            return False
-        GLib.timeout_add(250, start)
-
-    def _on_rec_change(self):
-        self.changed("rec")
-
-    def _on_rec_done(self, path, secs):
-        for w in self.windows.values():
-            if w.page == "record" and not w.hover:
-                w.page = "home"
-        if not path:
-            self.show_event(6.0, kind="pill", icon="dialog-error-symbolic", accent="red",
-                            text=f"La grabación falló · {self.recorder.error or ''}".rstrip(" ·"))
-            return
-        size = os.path.getsize(path)
-        self.show_event(8.0, kind="card", icon="media-record-symbolic", app="Grabación guardada",
-                        title=os.path.basename(path), body=f"{fmt_secs(secs)} · {fmt_size(size)} · clic para abrir",
-                        action=lambda: open_uri(Gio.File.new_for_path(path).get_uri()))
-
-    def _on_reminder(self, r, late=False):
-        if not self.feature("reminders"):
-            return
-        play_sound("alarm-clock-elapsed.oga", "complete.oga")
-        hm_ = hm(r["at"])
-        self.show_event(20.0, kind="card", icon="alarm-symbolic",
-                        app=f"Recordatorio · pendiente desde las {hm_}" if late else f"Recordatorio · {hm_}",
-                        title=r["text"], body="Clic para posponer 10 min",
-                        action=lambda: (self.reminders.snooze(r, 10),
-                                        self.show_event(2.0, kind="pill", icon="alarm-symbolic", accent="blue",
-                                                        text="Pospuesto 10 min")))
-
-    def _on_fx_day(self):
-        ch = self.fx.change()
-        right = None if ch is None else f"{'▲' if ch > 0 else '▼'} {abs(ch):.1f}%".replace(".", ",")
-        self.show_event(5.0, kind="pill", icon="money-symbolic", text=f"TRM hoy {cop(self.fx.trm)}",
-                        right=right, right_accent=None if ch is None else "red" if ch > 0 else "green")
-
-    def _on_download(self, kind, d):
-        if kind == "done":
-            path = d["path"]
-            self.show_event(7.0, kind="card", icon="folder-download-symbolic", app="Descarga terminada",
-                            title=d["name"], body=f"{fmt_size(d['size'])} · clic para abrir",
-                            action=lambda: open_uri(Gio.File.new_for_path(path).get_uri()))
-        elif kind == "cancelled":
-            self.show_event(3.0, kind="pill", icon="folder-download-symbolic", text=f"Descarga cancelada · {d['name']}")
-
-    def _on_net(self, kind, name):
-        if kind == "vpn_on":
-            self.show_event(3.0, kind="pill", icon="network-vpn-symbolic", accent="blue", text=f"VPN conectada · {name}")
-        elif kind == "vpn_off":
-            self.show_event(4.0, kind="pill", icon="network-vpn-symbolic", accent="orange",
-                            text=f"VPN desconectada · {name}")
-        elif kind == "offline":
-            self.show_event(6.0, kind="pill", icon="network-offline-symbolic", accent="red", text="Sin Internet")
-        else:
-            self.show_event(3.0, kind="pill", icon="network-transmit-receive-symbolic", accent="green",
-                            text="Internet de vuelta")
-
-    def _on_sysmon(self, kind, name, value):
-        if kind == "cpu":
-            self.show_event(6.0, kind="pill", icon="utilities-system-monitor-symbolic", accent="orange",
-                            text=f"{name} usa mucha CPU", right=f"{value:.0f}%", right_accent="orange")
-        elif kind == "ram":
-            self.show_event(6.0, kind="pill", icon="dialog-warning-symbolic", accent="red",
-                            text="Queda poca memoria" + (f" · {name}" if name else ""),
-                            right=f"{value:.0f}% libre", right_accent="red")
-        else:
-            self.show_event(6.0, kind="pill", icon="dialog-warning-symbolic", accent="red",
-                            text="La CPU está muy caliente", right=f"{value:.0f}°", right_accent="red")
-
-    def _on_server(self, kind, s):
-        where = f"{s['name']} · :{s['port']}"
-        if kind == "up":
-            self.show_event(3.0, kind="pill", icon="network-server-symbolic", accent="green", text=f"Listo · {where}")
-        elif kind == "stopped":
-            self.show_event(2.5, kind="pill", icon="process-stop-symbolic", text=f"Detenido · {where}")
-        else:
-            self.show_event(6.0, kind="pill", icon="dialog-error-symbolic", accent="red", text=f"Se cayó · {where}")
-
-    def _on_deploy(self, kind, d):
-        where = f"{d['name']} · {d['env']}"
-        if kind == "start":
-            self.show_event(3.0, kind="pill", icon="emblem-synchronizing-symbolic", accent="orange",
-                            text=f"Desplegando {where}")
-        elif d["state"] == "SUCCESS":
-            self.show_event(5.0, kind="pill", icon="emblem-ok-symbolic", accent="green", text=f"Desplegado · {where}")
-        else:
-            self.show_event(12.0, kind="card", icon="dialog-error-symbolic", app="Despliegue fallido",
-                            title=where, body=d["commit"] or d["repo"], action=lambda: open_uri(d["url"]))
-
-    def _on_github(self, kind, p):
-        ref = f"{p['repo']}#{p['num']}"
-        if kind == "review":
-            self.show_event(9.0, kind="card", icon=GITHUB_APP, app="GitHub · Revisión pedida",
-                            title=p["title"], body=f"{ref} · {p['author']}",
-                            action=lambda: self.open_github(p["url"]))
-        elif kind == "ci":
-            good = p["ci"] == "SUCCESS"
-            self.show_event(4.0, kind="pill", icon="emblem-ok-symbolic" if good else "dialog-error-symbolic",
-                            accent="green" if good else "red", text=f"CI {'pasó' if good else 'falló'} · {ref}")
-        elif kind == "decision":
-            good = p["review"] == "APPROVED"
-            self.show_event(4.0, kind="pill", icon="emblem-ok-symbolic" if good else "document-edit-symbolic",
-                            accent="green" if good else "orange",
-                            text=f"{'Aprobada' if good else 'Piden cambios'} · {ref}")
-
-    def _on_bt_connect(self, name, connected, ic):
-        self.show_event(4.0, kind="pill", icon=ic, accent="blue" if connected else None,
-                        text=name, right="Conectado" if connected else "Desconectado",
-                        right_accent="blue" if connected else None)
-
-    def _on_drive(self, kind, name, vol):
-        if kind == "usb":
-            self.show_event(7.0, kind="card", icon="media-removable-symbolic", app="Medio extraíble",
-                            title=name, body="Haz clic para abrirlo", action=lambda: self.drives.open(vol))
-        elif kind == "ejected":
-            self.show_event(3.0, kind="pill", icon="media-eject-symbolic", accent="green",
-                            text=f"Ya puedes retirar {name}")
-        else:
-            self.show_event(3.5, kind="pill", icon="dialog-warning-symbolic", accent="red", text=name)
 
     # ── temporizador ──
-    def _on_pomo_end(self, prev, nxt):
-        for snd in ("/usr/share/sounds/freedesktop/stereo/complete.oga",
-                    "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"):
-            if os.path.exists(snd):
-                subprocess.Popen(["pw-play", snd], stderr=subprocess.DEVNULL)
-                break
-        mins = self.pomo.conf[nxt]
-        title = "¡Buen trabajo! Toca descansar" if prev == "work" else "¡Fin del descanso! A enfocarse"
-        auto = self.pomo.running
-        body = f"Siguiente: {Pomodoro.LABEL[nxt].lower()} de {mins} min" + \
-            ("" if auto else " · haz clic para empezar")
-        self.show_event(10.0, kind="card", icon="timer-symbolic", app="Pomodoro", title=title, body=body,
-                        action=None if auto else self.pomo.start)
-
     def start_timer(self, secs):
         self.timer_total, self.timer_end = secs, time.monotonic() + secs
         self.refresh()
@@ -434,58 +271,13 @@ class Core:
         self.refresh()
 
     # ── captura ──
-    def screenshot(self, monitor=None):
-        """Sin monitor: eliges un área con un rectángulo sobre la pantalla sombreada.
-        Con monitor: captura esa pantalla completa."""
-        folder = os.path.join(GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
-                              or os.path.expanduser("~/Imágenes"), "Capturas")
-        os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, time.strftime("Captura %Y-%m-%d %H-%M-%S.png"))
-        self.set_hidden(True)
-
-        def grab(geom):
-            def saved(ok, _o, _err):
-                self.set_hidden(False)
-                if not ok:
-                    self.show_event(3, kind="pill", icon="dialog-warning-symbolic", accent="red",
-                                    text="No se pudo capturar")
-                    return
-                run(["sh", "-c", 'wl-copy -t image/png < "$1"', "sh", path])
-                try:
-                    pb = GdkPixbuf.Pixbuf.new_from_file_at_size(path, 160, 160)
-                except GLib.Error:
-                    pb = None
-                self.show_event(7.0, kind="card", pixbuf=pb, icon="camera-photo-symbolic", app="Captura",
-                                title="Guardada y copiada al portapapeles", body=os.path.basename(path),
-                                action=lambda: open_uri(GLib.filename_to_uri(path, None)))
-            run(["grim", "-g", geom, path], saved)
-
-        def start():
-            if monitor is not None:
-                g = monitor.get_geometry()
-                grab(f"{g.x},{g.y} {g.width}x{g.height}")
-            else:
-                def picked(ok, out, _e):
-                    if ok and out.strip():
-                        grab(out.strip())
-                    else:
-                        self.set_hidden(False)
-                run(["slurp", "-d", "-b", "00000099", "-c", "ffffffff", "-s", "00000000", "-w", "2",
-                     "-B", "ffffff22"], picked)
-            return False
-        GLib.timeout_add(250, start)
-
     # ── tic de 1 s ──
     def tick(self):
         now = time.monotonic()
         if self.timer_end and now >= self.timer_end:
             self.timer_end = None
             self.alert_until = now + 10
-            for snd in ("/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga",
-                        "/usr/share/sounds/freedesktop/stereo/complete.oga"):
-                if os.path.exists(snd):
-                    subprocess.Popen(["pw-play", snd], stderr=subprocess.DEVNULL)
-                    break
+            play_sound("alarm-clock-elapsed.oga", "complete.oga")
         self.pomo.tick()
         self.reminders.tick()
         if self.recorder.active:

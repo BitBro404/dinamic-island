@@ -1,17 +1,20 @@
 """Bloquear, suspender, reiniciar y apagar."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import GLib, Gtk
+
+from ..ui.gtk import button, icon, label, set_class
+from .base import Page
 from .registry import page
 
 
-class PowerPage:
+class PowerPage(Page):
+    """Energía: bloquear, cerrar sesión, suspender, reiniciar y apagar (las peligrosas piden un segundo clic)."""
     PAGES = {
         "power": page("_build_power"),
     }
 
     def _build_power(self):
         box = self._page("Energía")
+        self._confirm = None        # acción que espera un segundo clic para confirmarse
         row = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
         p = self.core.power
         self.pw_buttons = {}
@@ -48,3 +51,18 @@ class PowerPage:
             self._confirm = None
             self.refresh()
         return False
+
+    def live(self, c, m, playing, timer_left):
+        """Botones en modo «¿Seguro?» mientras se espera la confirmación."""
+        for key, (btn, lb, txt) in self.pw_buttons.items():
+            confirming = self._confirm == key
+            set_class(btn, "confirm", confirming)
+            lb.set_text("¿Seguro?" if confirming else txt)
+        if not self._confirm:
+            self.pw_hint.set_text("")
+
+    def on_collapse(self):
+        self._confirm = None
+
+    def waiting(self):
+        return bool(self._confirm)

@@ -1,13 +1,20 @@
 """Clima detallado."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import time
+
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear, icon, label, set_accent
+from ..ui.widgets.charts import TempBar
+from ..ui.widgets.weather_icon import WeatherIcon
+from ..util.fmt import hm
+from .base import Page
 from .registry import feature, page
 
 feature("weather", "Clima", "Temperatura en la píldora, página de clima y avisos de lluvia")
 
 
-class WeatherPage:
+class WeatherPage(Page):
+    """Clima: ahora, próximas horas y días, y búsqueda de ciudad."""
     PAGES = {
         "weather": page("_build_weather", "_fill_weather_page", ("weather",), "_open_weather"),
     }
@@ -149,7 +156,7 @@ class WeatherPage:
 
     def _set_city(self):
         text = self.we_entry.get_text().strip()
-        self.set_focus(None)
+        self.host.set_focus(None)
         if text:
             self.core.weather.set_city(text)
 
@@ -158,3 +165,6 @@ class WeatherPage:
         w = self.core.weather
         if not w.data or time.time() - w.data["updated"] > 600:
             w.refresh()
+
+    def typing(self):
+        return self.we_entry.has_focus()

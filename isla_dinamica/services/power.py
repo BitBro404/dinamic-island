@@ -1,5 +1,7 @@
 """Batería, límite de carga y energía."""
-from ..common import *  # noqa: F401,F403
+from gi.repository import GLib, Gio
+
+from ..util.proc import run
 
 
 class ChargeLimit:
@@ -47,6 +49,7 @@ class ChargeLimit:
 
 
 class Battery:
+    """Batería por UPower: nivel, carga y avisos (llena, baja, cargando)."""
     CHARGING, DISCHARGING, FULL, PENDING = 1, 2, 4, 5
     LOW = 20
 
@@ -109,6 +112,7 @@ class Battery:
 
 
 class Power:
+    """Acciones de energía: bloquear, cerrar sesión, suspender, reiniciar y apagar."""
     def __init__(self, sysbus, bus):
         self.sysbus, self.bus = sysbus, bus
 

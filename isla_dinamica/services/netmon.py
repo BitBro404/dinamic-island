@@ -1,7 +1,12 @@
 """Red: velocidad de bajada y subida, VPN activa y si hay Internet."""
 from collections import deque
 
-from ..common import *  # noqa: F401,F403
+import time
+
+from gi.repository import GLib
+
+from ..util.fmt import nm_split
+from ..util.proc import run
 
 VPN_TYPES = ("vpn", "wireguard", "tun")
 
@@ -45,6 +50,7 @@ def _pretty_vpn(name):
 
 
 class NetMon:
+    """Velocidad de bajada y subida, VPN activa y si hay Internet (avisa al perderla o recuperarla)."""
     def __init__(self, on_change, on_event, enabled=lambda: True):
         self.on_change, self.on_event, self.enabled = on_change, on_event, enabled
         self.down = deque(maxlen=40)

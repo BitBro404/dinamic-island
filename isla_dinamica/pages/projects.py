@@ -1,7 +1,15 @@
 """Proyectos: estado git de los repos vigilados y las carpetas que se vigilan."""
-from ..common import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import os
+import subprocess
+import time
+
+from gi.repository import GLib, Gio, Gtk
+
+from ..ui.gtk import button, clear, icon, label, set_accent
+from ..util.fmt import ago_long
+from ..util.proc import open_uri
 from ..services.gitwatch import changes, expand, short, summary
+from .base import Page
 from .registry import feature, page, tool
 
 feature("git", "Proyectos (git)", "Rama, cambios sin commit, commits por subir o bajar y stashes de tus repos")
@@ -16,7 +24,8 @@ def open_in_editor(path):
     open_uri(Gio.File.new_for_path(path).get_uri())
 
 
-class ProjectsPage:
+class ProjectsPage(Page):
+    """Proyectos: repos git vigilados, cambios sin subir y commits nuevos en remoto."""
     PAGES = {
         "projects": page("_build_projects", "_fill_projects", ("git",), "_open_projects"),
     }

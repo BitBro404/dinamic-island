@@ -1,11 +1,14 @@
 """Lista de notificaciones."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear, icon
+from ..util.fmt import ago
+from .base import Page
 from .registry import page
 
 
-class NotificationsPage:
+class NotificationsPage(Page):
+    """Avisos: historial de notificaciones del escritorio."""
     PAGES = {
         "notifs": page("_build_notifs", "_fill_notifs", ("notifs",), "_open_notifs"),
     }

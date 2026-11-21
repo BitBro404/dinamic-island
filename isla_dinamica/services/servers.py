@@ -1,5 +1,11 @@
 """Servidores de desarrollo que escuchan en este equipo (Vite, Next, Nest, Django, Spring…)."""
-from ..common import *  # noqa: F401,F403
+import os
+import re
+import time
+
+from gi.repository import GLib
+
+from ..util.proc import run
 
 DEV_RUNTIMES = {"node", "bun", "deno", "python", "python3", "java", "php", "ruby", "dotnet", "go", "air",
                 "uvicorn", "gunicorn", "puma", "rails", "beam.smp", "npm", "pnpm", "yarn", "esbuild"}

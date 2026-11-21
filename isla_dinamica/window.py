@@ -1,11 +1,23 @@
 """La ventana de la isla: forma, animación, arrastre, eventos y vista compacta."""
-from .common import *  # noqa: F401,F403
-from .widgets import *  # noqa: F401,F403
-from .services import *  # noqa: F401,F403
+import time
+
+from gi.repository import GLib, Gdk, Gtk, GtkLayerShell
+
+from .services.media import Volume
+from .ui.style import BUB_GAP, BUB_MAX, H
+from .ui.widgets.art import Art, GREEN, vivid_color
+from .util.fmt import hm
 from .pages import PAGE_CLASSES
+from .ui.pill import PillState, pick_pill
+from .ui.bubbles import activities
+from .ui.dock import DockMixin
+from .ui.paint import PaintMixin
+from .ui.bubbles import BubblesMixin
+from .ui.pill_view import PillViewMixin
 
 
-class IslandWindow(*PAGE_CLASSES, Gtk.Window):
+class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Window):
+    """Ventana de la isla: une píldora, burbujas, dibujo y acople (mixins) con las páginas (objetos Page)."""
     def __init__(self, core, monitor):
         super().__init__(title="Isla dinámica")
         core.app.add_window(self)
@@ -32,9 +44,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self.vel = [0.0, 0.0]
         self._anim_src = None
         self.seen = {}
-        self.pw_net = None
-        self._confirm = None
-        self._vol_lock = False
+        self.page_clocks = []       # relojes de las cabeceras de página (Page._page los registra)
         self.card_hold = False      # ratón sobre una notificación: no se cierra
         # arrastre y acople a los bordes
         self.vertical = False       # píldora en vertical (pegada a un borde lateral)
@@ -102,8 +112,11 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         for name, builder in (("compact", self._build_compact), ("card", self._build_card),
                               ("alert", self._build_alert)):
             self.stack.add_named(builder(), name)
-        for name, spec in self._page_specs().items():
-            self.stack.add_named(getattr(self, spec["build"])(), name)
+        # páginas: un objeto por clase de pages/, que recibe esta ventana como «host» (composición)
+        self.page_objs = [cls(self) for cls in PAGE_CLASSES]
+        self.specs = {name: (obj, spec) for obj in self.page_objs for name, spec in obj.PAGES.items()}
+        for name, (obj, spec) in self.specs.items():
+            self.stack.add_named(getattr(obj, spec["build"])(), name)
 
         self.connect("draw", self._draw)
         self.connect("realize", lambda *_: self.get_frame_clock().connect("after-paint", self._after_paint))
@@ -113,475 +126,28 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         self.refresh()
 
     # ── construcción ──
-    def _build_compact(self):
-        box = self.c_box = Gtk.Box(spacing=9, margin_start=14, margin_end=14)
-        self.c_time = label("", "c-time", ellipsize=False)     # la hora, siempre a la vista
-        self.c_time.set_no_show_all(True)
-        box.pack_start(self.c_time, False, False, 0)
-        self.c_left = Gtk.Stack()
-        self.c_icon = Gtk.Image()
-        self.c_art = Art(22, 6)
-        self.c_left.add_named(self.c_icon, "icon")
-        self.c_left.add_named(self.c_art, "art")
-        box.pack_start(self.c_left, False, False, 0)
-        self.c_center = Gtk.Stack(hexpand=True)
-        self.c_label = label("", "c-text")
-        self.c_level = Gtk.LevelBar(valign=Gtk.Align.CENTER, min_value=0, max_value=1)
-        for off in ("low", "high", "full"):
-            self.c_level.remove_offset_value(off)
-        self.c_center.add_named(self.c_label, "label")
-        self.c_center.add_named(self.c_level, "level")
-        box.pack_start(self.c_center, True, True, 0)
-        self.c_right = Gtk.Stack()
-        self.c_rlabel = label("", "c-text", xalign=1.0, ellipsize=False)
-        self.c_eq = Equalizer()
-        self.c_eq.levels_fn = lambda: self.core.audio.levels if self.core.feature("audio") else None
-        self._eq_art = object()     # carátula de la que salió el color actual
-        self._art_color = GREEN
-        self._glow = 0.0            # brillo del borde (sigue el volumen)
-        self._glow_tick = None
-        self._glow_drawn = 0.0
-        self.c_right.add_named(self.c_rlabel, "label")
-        self.c_right.add_named(self.c_eq, "eq")
-        self.c_dots = PrivacyDots()           # puntos de privacidad: en el extremo derecho
-        self.c_dots.set_no_show_all(True)
-        box.pack_end(self.c_dots, False, False, 0)
-        box.pack_end(self.c_right, False, False, 0)
-        self.c_wicon = WeatherIcon(18)
-        self.c_wicon.set_no_show_all(True)
-        box.pack_end(self.c_wicon, False, False, 0)
-        return box
-
-    def _build_card(self):
-        box = Gtk.Box(spacing=12, margin_start=14, margin_end=18, margin_top=12, margin_bottom=12)
-        self.k_left = Gtk.Stack(valign=Gtk.Align.CENTER)
-        self.k_icon = Gtk.Image(pixel_size=30)
-        self.k_art = Art(42, 10)
-        self.k_left.add_named(self.k_icon, "icon")
-        self.k_left.add_named(self.k_art, "art")
-        box.pack_start(self.k_left, False, False, 0)
-        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
-        self.k_app = label("", "dim small")
-        self.k_title = label("", "subtitle")
-        self.k_body = label("", "artist", lines=2)
-        self.k_hint = label("Clic para abrir", "time-small")
-        self.k_hint.set_no_show_all(True)
-        for w in (self.k_app, self.k_title, self.k_body, self.k_hint):
-            txt.pack_start(w, False, False, 0)
-        box.pack_start(txt, True, True, 0)
-        close = button("close", icon("window-close-symbolic", px=12), self._close_card, "Cerrar")
-        close.set_valign(Gtk.Align.START)
-        box.pack_end(close, False, False, 0)
-        return box
-
-    def _close_card(self):
-        """Descarta la notificación; si el ratón sigue encima, se ve el panel con las demás opciones."""
-        self.core.event = None
-        self.card_hold = False
-        self.core.refresh()
-
-    def _build_alert(self):
-        box = Gtk.Box(spacing=12, margin_start=18, margin_end=14)
-        a = icon("alarm-symbolic", Gtk.IconSize.LARGE_TOOLBAR)
-        set_accent(a, "orange")
-        box.pack_start(a, False, False, 0)
-        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-        txt.pack_start(label("¡Tiempo cumplido!", "title"), False, False, 0)
-        self.a_sub = label("", "artist")
-        txt.pack_start(self.a_sub, False, False, 0)
-        box.pack_start(txt, True, True, 0)
-        ok = button("chip", cb=self.core.dismiss_alert, text="OK")
-        ok.set_valign(Gtk.Align.CENTER)
-        box.pack_end(ok, False, False, 0)
-        return box
-
-    def _page(self, title, right=None):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
-                      margin_start=16, margin_end=16, margin_top=12, margin_bottom=14)
-        head = Gtk.Box(spacing=6)
-        head.pack_start(button("ctrl", icon("go-previous-symbolic"), lambda: self.go("home"), "Volver"),
-                        False, False, 0)
-        head.pack_start(label(title, "title"), True, True, 0)
-        clk = label(hm(), "c-time", ellipsize=False)
-        clk.set_valign(Gtk.Align.CENTER)
-        head.pack_end(clk, False, False, 0) if right is None else None
-        if not hasattr(self, "_page_clocks"):
-            self._page_clocks = []
-        self._page_clocks.append(clk)
-        if right is not None:
-            right.set_valign(Gtk.Align.CENTER)
-            head.pack_end(right, False, False, 0)
-            head.pack_end(clk, False, False, 4)
-        box.pack_start(head, False, False, 0)
-        return box
-
-    @staticmethod
-    def _scroller(child, max_h=250):
-        sw = Gtk.ScrolledWindow()
-        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        sw.set_propagate_natural_height(True)
-        sw.set_max_content_height(max_h)
-        sw.add(child)
-        return sw
-
-    @staticmethod
-    def _switch(cb):
-        sw = Gtk.Switch()
-        sw._cb = sw.connect("notify::active", lambda s, _p: cb(s.get_active()))
-        return sw
-
-    @staticmethod
-    def _set_switch(sw, value):
-        if sw.get_active() != value:
-            sw.handler_block(sw._cb)
-            sw.set_active(value)
-            sw.handler_unblock(sw._cb)
-
     def go(self, page):
         self.page = page
         self._nav_t = time.monotonic()
-        spec = self._page_specs().get(page)
-        if spec and spec["open"]:
-            getattr(self, spec["open"])()
+        self._opened(page)
         self.refresh()
 
-    @classmethod
-    def _page_specs(cls):
-        """Todas las páginas declaradas por las clases de pages/ (nombre → spec)."""
-        if "_specs" not in cls.__dict__:
-            specs = {}
-            for klass in reversed(cls.__mro__):
-                specs.update(klass.__dict__.get("PAGES", {}))
-            cls._specs = specs
-        return cls._specs
+    def _opened(self, page):
+        """Avisa a la página que se acaba de abrir (para que refresque sus datos si están viejos)."""
+        obj, spec = self.specs.get(page, (None, None))
+        if spec and spec["open"]:
+            getattr(obj, spec["open"])()
 
     def _fill_lists(self):
         """Rellena cada página cuyos datos vigilados cambiaron desde la última vez."""
         ver = self.core.ver
-        for name, spec in self._page_specs().items():
+        for name, (obj, spec) in self.specs.items():
             if not spec["fill"]:
                 continue
             key = tuple(ver.get(k) for k in spec["watch"])
             if self.seen.get(name) != key:
                 self.seen[name] = key
-                getattr(self, spec["fill"])()
-
-    def _settings(self, panel):
-        subprocess.Popen(["budgie-control-center", panel], stderr=subprocess.DEVNULL)
-        self._set_hover(False)
-
-    def _collapse_then(self, fn):
-        self._set_hover(False)
-        fn()
-
-    # ── listas ──
-    def _row(self, ic, title, sub=None, cb=None, extra=None, pixbuf=None, sub_accent=None):
-        inner = Gtk.Box(spacing=10)
-        if pixbuf is not None:
-            a = Art(32, 8)
-            a.set_pixbuf(pixbuf)
-            inner.pack_start(a, False, False, 0)
-        elif ic:
-            inner.pack_start(icon(ic, px=24), False, False, 0)
-        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-        txt.pack_start(label(title, "subtitle"), False, False, 0)
-        if sub:
-            s = label(sub, "dim", lines=2)
-            set_accent(s, sub_accent)
-            txt.pack_start(s, False, False, 0)
-        inner.pack_start(txt, True, True, 0)
-        row = Gtk.Box(spacing=4)
-        if cb:
-            row.pack_start(button("row", inner, cb), True, True, 0)
-        else:
-            inner.set_margin_start(8)
-            inner.set_margin_top(6)
-            inner.set_margin_bottom(6)
-            row.pack_start(inner, True, True, 0)
-        for w in extra or ():
-            w.set_valign(Gtk.Align.CENTER)
-            row.pack_start(w, False, False, 0)
-        return row
-
-    def _fold(self, box, key, title, total, today=0, refill=None, top=True):
-        """Encabezado de sección plegable (se recuerda en config «collapsed»); devuelve True si está abierta.
-        `today`: novedades del día, en un contador azul visible aunque la sección esté plegada.
-        `refill`: función que vuelve a dibujar la página al plegar/desplegar."""
-        closed = key in self.core.config.data["collapsed"]
-        row = Gtk.Box(spacing=6)
-        row.pack_start(icon("pan-end-symbolic" if closed else "pan-down-symbolic", px=12), False, False, 0)
-        row.pack_start(label(f"{title} · {total}", "section"), False, False, 0)
-        if today:
-            b = label(f"{today}  hoy", "badge new", ellipsize=False, xalign=0.5)
-            b.set_valign(Gtk.Align.CENTER)
-            row.pack_end(b, False, False, 0)
-        head = button("sechead", row, lambda: self._fold_toggle(key, refill), "Mostrar" if closed else "Ocultar")
-        if top:
-            head.set_margin_top(4)
-        box.pack_start(head, False, False, 0)
-        return not closed
-
-    def _fold_toggle(self, key, refill):
-        cfg = self.core.config
-        cur = cfg.data["collapsed"]
-        cfg.data["collapsed"] = [k for k in cur if k != key] if key in cur else cur + [key]
-        cfg.save()
-        if refill:
-            GLib.idle_add(lambda: refill() and False)   # no destruir el botón dentro de su propio clic
-
-    @staticmethod
-    def _empty(box, text):
-        lb = label(text, "dim", xalign=0.5)
-        lb.set_margin_top(10)
-        lb.set_margin_bottom(10)
-        box.pack_start(lb, False, False, 0)
-
-    def _copy(self, text):
-        self.core.clip.copy(text)
-        self._set_hover(False)
-        self.core.show_event(1.5, kind="pill", icon="edit-copy-symbolic", accent="green", text="Copiado")
-
-    # ── dibujo ──
-    def _draw(self, _w, cr):
-        cr.set_operator(cairo.OPERATOR_CLEAR)
-        cr.paint()
-        cr.set_operator(cairo.OPERATOR_OVER)
-        a = self.get_allocation()
-        pl, pt, pr, pb = self.pad
-        w, h = a.width - pl - pr, a.height - pt - pb
-        cr.translate(pl, pt)
-        if any(self.pad):
-            self._draw_card_back(cr, w, h)
-            return False
-        if self.bubbles and self._bub_ext:
-            self._draw_bubbles(cr, w, h)
-            if self.vertical:
-                h = max(1, h - self._bub_ext)
-            else:
-                w = max(1, w - self._bub_ext)
-        r = min(w / 2, h / 2, 30)
-        cr.new_sub_path()
-        cr.arc(w - r, r, r, -math.pi / 2, 0)
-        cr.arc(w - r, h - r, r, 0, math.pi / 2)
-        cr.arc(r, h - r, r, math.pi / 2, math.pi)
-        cr.arc(r, r, r, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-        cr.set_source_rgb(0, 0, 0)
-        cr.fill_preserve()
-        if self._glow > 0.02:
-            cr.set_source_rgba(*self.c_eq.color, 0.10 + 0.6 * self._glow)
-            cr.set_line_width(1.5)
-        else:
-            cr.set_source_rgba(1, 1, 1, 0.07)
-            cr.set_line_width(1)
-        cr.stroke()
-        return False
-
-    @staticmethod
-    def _rrect(cr, x, y, w, h, r):
-        cr.new_sub_path()
-        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
-        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
-        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
-        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-
-    def _draw_card_back(self, cr, w, h):
-        """Notificación: sombra suave alrededor y un degradado del color de la app sobre el negro."""
-        r = min(w / 2, h / 2, 30)
-        dx, dy = {"top": (0, 5), "bottom": (0, -5), "left": (5, 0), "right": (-5, 0)}[self.core.dock["edge"]]
-        rr, gg, bb = self._card_rgb
-        steps = 12
-        for i in range(steps, 0, -1):          # sombra: capas cada vez más grandes y más tenues
-            self._rrect(cr, dx - i, dy - i, w + 2 * i, h + 2 * i, r + i)
-            a = 0.05 * (1 - i / (steps + 1)) ** 1.6
-            cr.set_source_rgba(rr * 0.25, gg * 0.25, bb * 0.25, a * 2.2)
-            cr.fill()
-        self._rrect(cr, 0, 0, w, h, r)
-        cr.set_source_rgb(0, 0, 0)
-        cr.fill_preserve()
-        g = cairo.LinearGradient(0, 0, w, h)
-        g.add_color_stop_rgba(0, rr, gg, bb, 0.42)
-        g.add_color_stop_rgba(0.45, rr, gg, bb, 0.10)
-        g.add_color_stop_rgba(1, rr, gg, bb, 0.0)
-        cr.set_source(g)
-        cr.fill_preserve()
-        top = cairo.LinearGradient(0, 0, 0, h)       # brillo arriba, como un vidrio
-        top.add_color_stop_rgba(0, 1, 1, 1, 0.07)
-        top.add_color_stop_rgba(0.5, 1, 1, 1, 0.0)
-        cr.set_source(top)
-        cr.fill_preserve()
-        border = cairo.LinearGradient(0, 0, w, 0)
-        border.add_color_stop_rgba(0, rr, gg, bb, 0.55)
-        border.add_color_stop_rgba(1, 1, 1, 1, 0.06)
-        cr.set_source(border)
-        cr.set_line_width(1.2)
-        cr.stroke()
-
-    CARD_COLORS = (("teams", (0.38, 0.39, 0.85)), ("outlook", (0.06, 0.47, 0.85)), ("correo", (0.06, 0.47, 0.85)),
-                   ("github", (0.62, 0.66, 0.78)), ("pomodoro", (1.0, 0.27, 0.23)), ("grabación", (1.0, 0.27, 0.23)),
-                   ("fallido", (1.0, 0.27, 0.23)), ("recordatorio", (0.04, 0.52, 1.0)),
-                   ("descarga", (0.04, 0.52, 1.0)), ("medio", (1.0, 0.62, 0.04)), ("captura", (0.6, 0.62, 0.7)))
-
-    def _card_color(self, ev):
-        if ev.get("pixbuf") is not None:
-            return vivid_color(ev["pixbuf"], (0.35, 0.45, 0.95))
-        acc = ev.get("accent")
-        if acc in self.RING and acc:
-            return self.RING[acc]
-        app = (ev.get("app") or "").lower()
-        for key, rgb in self.CARD_COLORS:
-            if key in app:
-                return rgb
-        return (0.35, 0.45, 0.95)
-
-    def _set_pad(self, on):
-        e = self.core.dock["edge"]
-        if not on:
-            pad = (0, 0, 0, 0)
-        else:   # poca sombra del lado pegado al borde, más del lado contrario (la luz viene del borde)
-            pad = {"top": (16, 4, 16, 24), "bottom": (16, 24, 16, 4),
-                   "left": (4, 16, 24, 16), "right": (24, 16, 4, 16)}[e]
-        if pad == self.pad:
-            return
-        self.pad = pad
-        self.outer.set_margin_start(pad[0])
-        self.outer.set_margin_top(pad[1])
-        self.outer.set_margin_end(pad[2])
-        self.outer.set_margin_bottom(pad[3])
-        self._layout = None
-        self._kick()
-
-    def _set_glow(self, on):
-        """Mientras suena algo, el borde de la píldora brilla al ritmo del volumen."""
-        if on and self._glow_tick is None:
-            self._glow_tick = self.add_tick_callback(self._glow_step)
-        elif not on and self._glow_tick is not None:
-            self.remove_tick_callback(self._glow_tick)
-            self._glow_tick = None
-            self._glow = 0.0
-            self.queue_draw()
-
-    def _glow_step(self, *_):
-        lv = self.core.audio.level if self.core.audio.levels else 0.0
-        self._glow += (lv - self._glow) * (0.5 if lv > self._glow else 0.12)
-        if abs(self._glow - self._glow_drawn) > 0.04:     # redibujar solo si se nota
-            self._glow_drawn = self._glow
-            self.queue_draw()
-        return True
-
-    RING = {"orange": (1.0, 0.62, 0.04), "green": (0.19, 0.82, 0.35), "red": (1.0, 0.27, 0.23),
-            "blue": (0.04, 0.52, 1.0), None: (1.0, 1.0, 1.0)}
-
-    def _bubble_rects(self, w, h):
-        """(x, y) de la esquina de cada burbuja, alineadas al final de la ventana."""
-        out = []
-        for i in range(len(self.bubbles)):
-            off = self._bub_ext - BUB_GAP - i * (H + BUB_GAP)
-            out.append((w / 2 - H / 2, h - off) if self.vertical else (w - off, h / 2 - H / 2))
-        return out
-
-    def _draw_bubbles(self, cr, w, h):
-        for (x, y), act in zip(self._bubble_rects(w, h), self.bubbles):
-            cx, cy, r = x + H / 2, y + H / 2, H / 2
-            cr.arc(cx, cy, r, 0, 2 * math.pi)
-            cr.set_source_rgb(0, 0, 0)
-            cr.fill_preserve()
-            cr.set_source_rgba(1, 1, 1, 0.07)
-            cr.set_line_width(1)
-            cr.stroke()
-            prog = act.get("progress")
-            if prog is not None:
-                cr.set_line_width(2.5)
-                cr.set_source_rgba(1, 1, 1, 0.12)
-                cr.arc(cx, cy, r - 3, 0, 2 * math.pi)
-                cr.stroke()
-                cr.set_source_rgb(*self.RING.get(act.get("accent"), self.RING[None]))
-                cr.arc(cx, cy, r - 3, -math.pi / 2, -math.pi / 2 + 2 * math.pi * min(1.0, max(0.0, prog)))
-                cr.stroke()
-
-    def _set_bubbles(self, acts):
-        self.bubbles = acts
-        for i, (st, img, art) in enumerate(self.bub_widgets):
-            if i < len(acts):
-                a = acts[i]
-                if a.get("art") is not None:
-                    art.set_pixbuf(a["art"])
-                    st.set_visible_child_name("art")
-                else:
-                    img.set_from_icon_name(a["icon"], Gtk.IconSize.MENU)
-                    set_accent(img, a.get("accent"))
-                    st.set_visible_child_name("icon")
-                st.set_tooltip_text(a.get("tip"))
-                st.show()
-            else:
-                st.hide()
-        self.bub_box.set_visible(bool(acts))
-        if self.vertical:
-            self.bub_box.set_margin_top(BUB_GAP if acts else 0)
-            self.bub_box.set_margin_start(0)
-        else:
-            self.bub_box.set_margin_start(BUB_GAP if acts else 0)
-            self.bub_box.set_margin_top(0)
-        self._bub_ext = len(acts) * (H + BUB_GAP)
-        self.queue_draw()
-
-    def _bubble_at(self):
-        """Índice de la burbuja bajo el ratón, o None (sobre la píldora)."""
-        if not self.bubbles or self.view != "compact":
-            return None
-        try:
-            x, y = self._pointer()
-        except (AttributeError, TypeError):
-            return None
-        w, h = self.cur
-        for i, (bx, by) in enumerate(self._bubble_rects(w, h)):
-            if bx - BUB_GAP / 2 <= x <= bx + H + BUB_GAP / 2 and by - BUB_GAP / 2 <= y <= by + H + BUB_GAP / 2:
-                return i
-        return None
-
-    def _activities(self, c, m, playing, timer_left):
-        """Actividades en curso, de más a menos importante: llamada, música, pomodoro y el resto."""
-        acts = []
-        au = c.audio if c.feature("audio") else None
-        if au and au.call:
-            acts.append({"key": "call", "icon": "call-start-symbolic", "accent": "green", "page": "home",
-                         "tip": f"En llamada · {au.call} · {fmt_secs(time.monotonic() - au.call_since)}"})
-        if playing:
-            acts.append({"key": "media", "icon": "audio-x-generic-symbolic", "accent": "green", "page": "home",
-                         "art": c.art, "tip": f"{m['title']} · {m.get('artist') or ''}".rstrip(" ·")})
-        p = c.pomo
-        if p.active:
-            acts.append({"key": "pomo", "icon": "timer-symbolic", "accent": "red" if p.phase == "work" else "green",
-                         "page": "pomo", "progress": 1 - p.left() / p.length(p.phase),
-                         "tip": f"{Pomodoro.LABEL[p.phase]} · {fmt_secs(p.left())}"})
-        if c.recorder.active:
-            acts.append({"key": "rec", "icon": "media-record-symbolic", "accent": "red", "page": "record",
-                         "tip": f"Grabando · {fmt_secs(c.recorder.elapsed())}"})
-        r = c.reminders.next() if c.feature("reminders") else None
-        if r and r["at"] - time.time() < 300:
-            acts.append({"key": "reminder", "icon": "alarm-symbolic", "accent": "blue", "page": "reminders",
-                         "tip": r["text"]})
-        if c.feature("deploys") and c.deploys.active():
-            d = c.deploys.active()[0]
-            acts.append({"key": "deploy", "icon": "emblem-synchronizing-symbolic", "accent": "orange",
-                         "page": "github", "tip": f"Desplegando {d['name']} · {d['env']}"})
-        if c.feature("downloads") and c.downloads.active:
-            acts.append({"key": "download", "icon": "folder-download-symbolic", "accent": "blue",
-                         "page": "downloads", "tip": f"Descargando {c.downloads.main()['name']}"})
-        if au and not playing and not au.call and au.audible and au.outputs:
-            acts.append({"key": "audio", "icon": "audio-speakers-symbolic", "accent": "green", "page": "home",
-                         "tip": "Sonando: " + ", ".join(au.outputs)})
-        pr = c.presence
-        if c.feature("presence") and pr.state in ("watching", "present"):
-            acts.append({"key": "presence", "icon": "view-reveal-symbolic",
-                         "accent": "green" if pr.state == "present" else "blue", "page": "presence",
-                         "tip": "Presencia · " + ("te ve" if pr.state == "present" else "mirando si hay alguien")})
-        if timer_left is not None:
-            acts.append({"key": "timer", "icon": "alarm-symbolic", "accent": "orange", "page": "timer",
-                         "progress": 1 - timer_left / max(1, c.timer_total),
-                         "tip": f"Temporizador · {fmt_secs(timer_left)}"})
-        return acts
+                getattr(obj, spec["fill"])()
 
     # ── animación tipo resorte ──
     def _anim_step(self):
@@ -682,7 +248,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         """Cuánto esperar antes de cerrar cuando el ratón sale de la isla."""
         if time.monotonic() - self._nav_t < 1.5:
             return 8000           # se achicó al cambiar de página y el ratón quedó fuera: no es que se fuera
-        if self._confirm:
+        if any(obj.waiting() for obj in self.page_objs):
             return 8000           # esperando la confirmación de apagar/reiniciar/salir
         return 1000 if self.page == "home" else 3000
 
@@ -704,9 +270,7 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             if i is not None:
                 self.page = self.bubbles[i]["page"]
                 self._nav_t = time.monotonic()
-                spec = self._page_specs().get(self.page)
-                if spec and spec["open"]:
-                    getattr(self, spec["open"])()
+                self._opened(self.page)
             self.core.radios.refresh()
             ev = self.core.event
             self.card_hold = bool(self.view == "card" and ev and time.monotonic() < ev["until"])
@@ -718,9 +282,8 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                 GLib.timeout_add(3100, self.core.refresh)
             self.card_hold = False
             self.page = "record" if self.core.recorder.active else "home"
-            self.pw_net = None
-            self.w_pw.hide()
-            self._confirm = None
+            for obj in self.page_objs:
+                obj.on_collapse()
         self.refresh()
         return False
 
@@ -751,249 +314,10 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
             return True
         return False
 
-    # ── arrastre y acople a los bordes ──
-    def _mon_size(self):
-        g = self.monitor.get_geometry()
-        return g.width, g.height
-
-    def _pointer(self):
-        """Posición del ratón relativa a la ventana (en Wayland no hay coordenadas globales)."""
-        win = self.get_window()
-        dev = self.get_display().get_default_seat().get_pointer()
-        _, x, y, _ = win.get_device_position(dev)
-        return x, y
-
-    @staticmethod
-    def _nearest_edge(cx, cy, mw, mh):
-        dist = {"top": cy, "bottom": mh - cy, "left": cx, "right": mw - cx}
-        return min(dist, key=dist.get)
-
-    def _target_xy(self, w, h):
-        mw, mh = self._mon_size()
-        if self.drag and self.drag["moving"]:
-            cx, cy = self.drag["c"]
-        else:
-            e, p = self.core.dock["edge"], self.core.dock["pos"]
-            if e in ("top", "bottom"):
-                cx = p * mw
-                cy = GAP + h / 2 if e == "top" else mh - GAP - h / 2
-            else:
-                cy = p * mh
-                cx = GAP + w / 2 if e == "left" else mw - GAP - w / 2
-        x = max(GAP, min(cx - w / 2, mw - w - GAP))
-        y = max(GAP, min(cy - h / 2, mh - h - GAP))
-        return x, y
-
-    def _place(self):
-        """Coloca la ventana según el borde al que está pegada (o donde se esté arrastrando)."""
-        w, h = max(1, round(self.cur[0])), max(1, round(self.cur[1]))
-        mw, mh = self._mon_size()
-        x, y = self._target_xy(w, h)
-        pl, pt, pr, pb = self.pad
-        w, h = w + pl + pr, h + pt + pb                    # la ventana incluye el espacio de la sombra
-        x = max(0, min(round(x + self.poff[0]) - pl, mw - w))
-        y = max(0, min(round(y + self.poff[1]) - pt, mh - h))
-        self._last_xy = (x, y)
-        edge = None if self.drag and self.drag["moving"] else self.core.dock["edge"]
-        E = GtkLayerShell.Edge
-        if edge == "bottom":        # crece hacia arriba
-            layout = ((E.BOTTOM, E.LEFT), {E.BOTTOM: mh - y - h, E.LEFT: x})
-        elif edge == "right":       # crece hacia la izquierda
-            layout = ((E.TOP, E.RIGHT), {E.TOP: y, E.RIGHT: mw - x - w})
-        else:
-            layout = ((E.TOP, E.LEFT), {E.TOP: y, E.LEFT: x})
-        if layout == self._layout:
-            return
-        anchors, margins = layout
-        if self._layout is None or anchors != self._layout[0]:
-            for e in (E.TOP, E.BOTTOM, E.LEFT, E.RIGHT):
-                GtkLayerShell.set_anchor(self, e, e in anchors)
-        for e in (E.TOP, E.BOTTOM, E.LEFT, E.RIGHT):
-            GtkLayerShell.set_margin(self, e, int(margins.get(e, 0)))
-        self._layout = layout
-        if self._applied == (0, 0) and not self.get_realized():
-            self._applied = (x, y)
-
-    def _after_paint(self, _clock):
-        self._applied = self._last_xy
-
+    # ── animación: arrancar el resorte ──
     def _kick(self):
         if self._anim_src is None:
             self._anim_src = GLib.timeout_add(16, self._anim_step)
-
-    def _set_vertical(self, v):
-        if v == self.vertical:
-            return
-        self.vertical = v
-        o = Gtk.Orientation.VERTICAL if v else Gtk.Orientation.HORIZONTAL
-        self.outer.set_orientation(o)
-        self.bub_box.set_orientation(o)
-        b = self.c_box
-        b.set_orientation(Gtk.Orientation.VERTICAL if v else Gtk.Orientation.HORIZONTAL)
-        b.set_margin_start(0 if v else 14)
-        b.set_margin_end(0 if v else 14)
-        b.set_margin_top(12 if v else 0)
-        b.set_margin_bottom(12 if v else 0)
-        self.c_center.set_hexpand(not v)
-        self.c_center.set_vexpand(v)
-        self.c_level.set_orientation(Gtk.Orientation.VERTICAL if v else Gtk.Orientation.HORIZONTAL)
-        self.c_level.set_inverted(v)
-        self.c_level.set_halign(Gtk.Align.CENTER if v else Gtk.Align.FILL)
-        self.c_level.set_valign(Gtk.Align.FILL if v else Gtk.Align.CENTER)
-
-    def _vtext(self, lb, text, maxc):
-        """Pone el texto de la píldora; en vertical lo gira o lo apila para que quepa."""
-        ell = lb is self.c_label
-        if not self.vertical:
-            lb.set_angle(0)
-            lb.set_justify(Gtk.Justification.LEFT)
-            lb.set_ellipsize(Pango.EllipsizeMode.END if ell else Pango.EllipsizeMode.NONE)
-            lb.set_text(text)
-            return
-        lb.set_ellipsize(Pango.EllipsizeMode.NONE)   # GTK ignora el giro si hay elipsis
-        lb.set_justify(Gtk.Justification.CENTER)
-        hmm = re.fullmatch(r"(\d{1,2}):(\d{2})(?: ?[ap]m)?", text)
-        if hmm:                                      # hora o temporizador: 14 / 05
-            lb.set_angle(0)
-            lb.set_text(f"{hmm.group(1)}\n{hmm.group(2)}")
-        elif len(text) <= 3:
-            lb.set_angle(0)
-            lb.set_text(text)
-        else:
-            lb.set_angle(90)
-            lb.set_text(text if len(text) <= maxc else text[:maxc - 1].rstrip() + "…")
-
-    def dock_changed(self):
-        self._set_vertical(self.core.dock["edge"] in ("left", "right"))
-        self.refresh()
-        self._place()
-        self._kick()
-
-    def _set_cursor(self, name):
-        win = self.get_window()
-        if win:
-            win.set_cursor(Gdk.Cursor.new_from_name(self.get_display(), name) if name else None)
-
-    def _on_drag_end(self, *_):
-        d, self.drag = self.drag, None
-        dbg("drag-end", bool(d and d["moving"]))
-        if d and d["moving"]:
-            self._drop()
-
-    def _on_press(self, _g, x, y):
-        self.drag = {"start": self._pointer(), "moving": False}
-        dbg("press", self.drag["start"], "view", self.view)
-        # los hijos con ventana propia (Stack, ScrolledWindow) se tragan el movimiento:
-        # se consulta el ratón en cada cuadro mientras el botón siga pulsado
-        if not getattr(self, "_drag_src", None):
-            self._drag_src = GLib.timeout_add(12, self._drag_poll)
-
-    def _drag_poll(self):
-        if not self.drag:
-            self._drag_src = None
-            return False
-        win = self.get_window()
-        dev = self.get_display().get_default_seat().get_pointer()
-        _, x, y, mask = win.get_device_position(dev)
-        if not mask & Gdk.ModifierType.BUTTON1_MASK:
-            d, self.drag = self.drag, None
-            self._drag_src = None
-            dbg("poll: botón suelto", d["moving"])
-            if d["moving"]:
-                self._drop()
-            return False
-        self._drag_move(x, y)
-        return True
-
-    def _on_motion(self, _w, ev):
-        if not self.drag:
-            return False
-        self._drag_move(*self._pointer())
-        return True
-
-    def _drag_move(self, lx, ly):
-        d = self.drag
-        if not d["moving"]:
-            if math.hypot(lx - d["start"][0], ly - d["start"][1]) < DRAG_MIN:
-                return
-            if (self.pw_net and self.w_entry.has_focus()) or self.we_entry.has_focus():
-                self.drag = None
-                return
-            dbg("arrastre empieza")
-            self._gdrag.set_state(Gtk.EventSequenceState.CLAIMED)   # que ningún botón reciba el clic
-            w, h = self.cur
-            # en la píldora se agarra por donde se pulsó; si estaba abierta, se cierra bajo el ratón
-            d["off"] = ((d["start"][0] - w / 2, d["start"][1] - h / 2)
-                        if self.view == "compact" else (0.0, 0.0))
-            d["c"] = (self._applied[0] + d["start"][0] - d["off"][0],
-                      self._applied[1] + d["start"][1] - d["off"][1])
-            d["moving"] = True
-            self.poff, self.pvel = [0.0, 0.0], [0.0, 0.0]
-            self._set_cursor("grabbing")
-            if self._hover_src:
-                GLib.source_remove(self._hover_src)
-                self._hover_src = None
-            if self.hover:
-                self._set_hover(False)
-        ax, ay = self._applied[0] + lx, self._applied[1] + ly
-        d["c"] = (ax - d["off"][0], ay - d["off"][1])
-        mw, mh = self._mon_size()
-        vertical = self._nearest_edge(*d["c"], mw, mh) in ("left", "right")
-        if vertical != self.vertical:
-            self._set_vertical(vertical)
-            self.refresh()
-        self._place()
-        self.queue_draw()
-
-    def _drop(self):
-        self._drag_end = time.monotonic()
-        self._set_cursor(None)
-        mw, mh = self._mon_size()
-        w, h = self.cur
-        x0, y0 = self._last_xy
-        cx, cy = x0 + w / 2, y0 + h / 2
-        edge = self._nearest_edge(cx, cy, mw, mh)
-        pos = cx / mw if edge in ("top", "bottom") else cy / mh
-        dbg("soltada en", edge, round(pos, 2))
-        self.core.set_dock(edge, pos)
-        # que viaje con suavidad desde donde se soltó hasta el borde
-        tx, ty = self._target_xy(w, h)
-        self.poff = [x0 - tx, y0 - ty]
-        self.pvel = [0.0, 0.0]
-        self._layout = None
-        self._place()
-        self._kick()
-
-    # ── compacta ──
-    def _compact(self, left=None, icon_name=None, accent=None, text="", level=None,
-                 right=None, right_text="", right_accent=None, xalign=0.0, text_accent=None, wkind=None,
-                 clock=True):
-        self.c_time.set_visible(clock)
-        if clock:
-            self._vtext(self.c_time, hm(), 8)
-        self.c_wicon.set_visible(wkind is not None)
-        if wkind:
-            self.c_wicon.set_kind(wkind)
-        if left == "icon":
-            self.c_icon.set_from_icon_name(icon_name, Gtk.IconSize.MENU)
-            set_accent(self.c_icon, accent)
-        if left:
-            self.c_left.set_visible_child_name(left)
-        self.c_left.set_visible(left is not None)
-        if level is not None:
-            self.c_level.set_value(level)
-            self.c_center.set_visible_child_name("level")
-        else:
-            self._vtext(self.c_label, text, 16)
-            self.c_label.set_xalign(0.5 if self.vertical else xalign)
-            set_accent(self.c_label, text_accent)
-            self.c_center.set_visible_child_name("label")
-        if right == "label":
-            self._vtext(self.c_rlabel, right_text, 10)
-            set_accent(self.c_rlabel, right_accent)
-        if right:
-            self.c_right.set_visible_child_name(right)
-        self.c_right.set_visible(right is not None)
 
     # ── decide qué mostrar ──
     def refresh(self):
@@ -1002,164 +326,40 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
         m = c.media
         playing = bool(m and m["playing"])
         timer_left = (c.timer_end - now) if c.timer_end else None
-        self._update_home(c, m, playing, timer_left)
+        for obj in self.page_objs:
+            obj.live(c, m, playing, timer_left)
         self._fill_lists()
         if self.hover:
             now_hm = hm()
-            for clk in getattr(self, "_page_clocks", ()):
+            for clk in self.page_clocks:
                 if clk.get_text() != now_hm:
                     clk.set_text(now_hm)
             if playing and self.page == "home":
                 c.audio.detail_until = time.monotonic() + 1.5     # espectro detallado para el reproductor
-        eq_on = False
-        p = c.pomo
-        pomo_on = p.active
-        pomo_acc = "red" if p.phase == "work" else "green"
-        self._acts = self._activities(c, m, playing, timer_left)
+        self._acts = activities(c, m, playing, timer_left)
         akeys = {a["key"] for a in self._acts}
         self._shown = set()
         if c.art is not self._eq_art:             # color de las barras y del brillo según la carátula
             self._eq_art = c.art
             self._art_color = vivid_color(c.art)
         self.c_eq.color = self._art_color if playing else GREEN
+        self.c_art.set_pixbuf(c.art)
 
-        if c.alert_until and now < c.alert_until:
-            self.a_sub.set_text(f"Temporizador de {fmt_secs(c.timer_total)}")
-            self._show("alert", (360, 64))
-        elif self.card_hold and c.event and c.event.get("kind") == "card":
-            c.event["until"] = max(c.event["until"], now + 2.0)   # sigue abierta mientras el ratón esté encima
-            self._show_event(c.event)
-        elif self.hover:
-            self._show(self.page, (W_EXP, min(580, self._natural(self.page, W_EXP))))
-        elif c.feature("presence") and c.presence.state == "warning":
-            self._shown = {a["key"] for a in self._acts}     # cuenta atrás antes de bloquear: lo primero
-            left = c.presence.seconds_left()
-            self._compact("icon", "view-reveal-symbolic", "orange", text="Nadie frente a la pantalla",
-                          text_accent="orange", right="label",
-                          right_text=fmt_secs(left or 0), right_accent="orange")
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(260, min(380, nat + 4)), H))
-        elif c.event and now < c.event["until"]:
-            self._shown = {a["key"] for a in self._acts}     # durante un aviso, sin burbujas
-            self._show_event(c.event)
-        elif "call" in akeys:
-            self._shown = {"call"}
-            au = c.audio
-            self._compact("icon", "call-start-symbolic", "green",
-                          text=f"En llamada · {fmt_secs(time.monotonic() - au.call_since)}", text_accent="green",
-                          right="eq")
-            self.c_eq.color = GREEN
-            eq_on = True
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(200, min(360, nat + 4)), H))
-        elif playing:
-            self._shown = {"media"}
-            self._compact("art", text=m["title"], right="eq")
-            eq_on = True
-            self._show("compact", (300 + self._tw(), H))
-        elif pomo_on:
-            self._shown = {"pomo"}
-            self._compact("icon", "timer-symbolic", pomo_acc,
-                          text=f"{Pomodoro.LABEL[p.phase]}  {fmt_secs(p.left())}", text_accent=pomo_acc,
-                          right="label" if not p.running else None, right_text="En pausa")
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(190, min(360, nat + 4)), H))
-        elif c.recorder.active:
-            self._shown = {"rec"}
-            self._compact("icon", "media-record-symbolic", "red", text="Grabando", text_accent="red",
-                          right="label", right_text=fmt_secs(c.recorder.elapsed()), right_accent="red")
-            self._show("compact", (190 + self._tw(), H))
-        elif "reminder" in akeys:
-            self._shown = {"reminder"}
-            r = c.reminders.next()
-            self._compact("icon", "alarm-symbolic", "blue", text=r["text"],
-                          right="label", right_text=fmt_secs(max(0, r["at"] - time.time())), right_accent="blue")
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(200, min(380, nat + 4)), H))
-        elif "deploy" in akeys:
-            self._shown = {"deploy"}
-            d = c.deploys.active()[0]
-            more = len(c.deploys.active()) - 1
-            self._compact("icon", "emblem-synchronizing-symbolic", "orange",
-                          text=f"{d['name']} · {d['env']}" + (f" (+{more})" if more else ""),
-                          right="label", right_text=fmt_secs(time.time() - d["created"]), right_accent="orange")
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(220, min(420, nat + 4)), H))
-        elif "download" in akeys:
-            self._shown = {"download"}
-            d = c.downloads.main()
-            n = len(c.downloads.active)
-            rate = f"{fmt_size(int(d['speed']))}/s" if d["speed"] > 1024 else fmt_size(d["size"])
-            self._compact("icon", "folder-download-symbolic", "blue",
-                          text=d["name"] + (f" (+{n - 1})" if n > 1 else ""),
-                          right="label", right_text=rate, right_accent="blue")
-            self._show("compact", (300 + self._tw(), H))
-        elif "audio" in akeys:
-            self._shown = {"audio"}
-            outs = c.audio.outputs
-            self._compact("icon", "audio-speakers-symbolic", None,
-                          text=outs[0] + (f" (+{len(outs) - 1})" if len(outs) > 1 else ""), right="eq")
-            self.c_eq.color = GREEN
-            eq_on = True
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(190, min(340, nat + 4)), H))
-        elif timer_left is not None:
-            self._shown = {"timer"}
-            self._compact("icon", "alarm-symbolic", "orange", text=fmt_secs(timer_left), xalign=0.5,
-                          text_accent="orange")
-            self._show("compact", (170 + self._tw(), H))
-        else:
-            dot = c.unread > 0
-            wd = c.weather.data if c.feature("weather") else None
-            self._compact("icon" if dot else None, "preferences-system-notifications-symbolic", "red",
-                          text=hm(), xalign=0.5 if not wd else 0.0,
-                          right="label" if wd else None, right_text=f"{wd['temp']:.0f}°" if wd else "",
-                          wkind=wd.get("kind") if wd else None, clock=False)
-            nat = self._natural("compact", 0)
-            low = (209 if dot else 189) if wd else (150 if dot else 130)
-            self._show("compact", (max(low, nat + 4), H))
+        state = PillState(
+            alert=bool(c.alert_until and now < c.alert_until),
+            card_hold=bool(self.card_hold and c.event and c.event.get("kind") == "card"),
+            hover=self.hover,
+            presence_warning=c.feature("presence") and c.presence.state == "warning",
+            event=bool(c.event and now < c.event["until"]),
+            activities=frozenset(akeys), playing=playing, pomodoro=c.pomo.active,
+            recording=c.recorder.active, timer=timer_left is not None)
+        eq_on = bool(getattr(self, "_pill_" + pick_pill(state))(c, now, m, timer_left))
         if c.alert_until and now >= c.alert_until:
             c.alert_until = None
         self.c_eq.set_playing(eq_on)
         self._set_glow(eq_on and self.view == "compact" and c.feature("audio") and c.audio.levels is not None)
         return False
 
-    def _tw(self):
-        """Ancho extra de la hora en la píldora horizontal (para los tamaños fijos)."""
-        if self.vertical or not self.c_time.get_visible():
-            return 0
-        return self.c_time.get_preferred_width()[1] + 9
-
-    def _show_event(self, ev):
-        if ev["kind"] == "card":
-            if ev.get("pixbuf") is not None:
-                self.k_art.set_pixbuf(ev["pixbuf"])
-                self.k_left.set_visible_child_name("art")
-            else:
-                self.k_icon.set_from_icon_name(ev.get("icon") or "dialog-information-symbolic", Gtk.IconSize.DND)
-                self.k_left.set_visible_child_name("icon")
-            self.k_app.set_text(f"{ev.get('app', '')}  ·  {hm()}".lstrip(" ·"))
-            rgb = self._card_color(ev)
-            if rgb != self._card_rgb:
-                self._card_rgb = rgb
-                self.queue_draw()
-            self.k_title.set_text(ev.get("title", ""))
-            self.k_body.set_text(ev.get("body", ""))
-            self.k_body.set_visible(bool(ev.get("body")))
-            self.k_body.set_lines(10 if self.card_hold else 2)
-            self.k_hint.set_visible(self.card_hold and bool(ev.get("action")))
-            self._show("card", (W_CARD, self._natural("card", W_CARD)))
-        elif ev["kind"] == "volume":
-            v, muted = ev["value"], ev["muted"]
-            ic = ("audio-volume-muted-symbolic" if muted or v == 0 else
-                  "audio-volume-low-symbolic" if v < 0.34 else
-                  "audio-volume-medium-symbolic" if v < 0.67 else "audio-volume-high-symbolic")
-            self._compact("icon", ic, level=0 if muted else min(v, 1.0), right="label",
-                          right_text="Silencio" if muted else f"{round(v * 100)}%")
-            self._show("compact", (290 + self._tw(), H))
-        else:
-            self._compact("icon", ev.get("icon"), ev.get("accent"), text=ev.get("text", ""),
-                          right="label" if ev.get("right") else None, right_text=ev.get("right", ""),
-                          right_accent=ev.get("right_accent"))
-            nat = self._natural("compact", 0)
-            self._show("compact", (max(200, min(400, nat + 4)), H))
+    def typing(self):
+        """¿Se está escribiendo en algún campo de texto? (entonces no se empieza a arrastrar la isla)"""
+        return any(obj.typing() for obj in self.page_objs)

@@ -7,7 +7,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from isla_dinamica.common import DEFAULTS  # noqa: E402
+from isla_dinamica.config import DEFAULTS  # noqa: E402
 from isla_dinamica.services.presence import Presence  # noqa: E402
 
 WORK = datetime(2026, 11, 20, 10, 0)      # viernes 10:00 (en horario)
@@ -37,13 +37,19 @@ class FakeDetector:
 
 
 class ServiceTest(unittest.TestCase):
-    def make(self, result=False, ok=True, enabled=True, in_call=False, busy=False, wall=WORK, epoch=1000.0):
+    def make(self, result=False, ok=True, enabled=True, in_call=False, busy=False, wall=WORK, epoch=1000.0,
+             lock_ok=True):
         self.now = [0.0]
         self.done = []
         self.locks = 0
         self.det = FakeDetector(result, ok)
         self.cfg = FakeConfig()
-        acts = {k: (lambda k=k: self.done.append(k)) for k in ("lock", "screen_off", "screen_on")}
+        acts = {k: (lambda k=k: self.done.append(k)) for k in ("screen_off", "screen_on")}
+
+        def lock():
+            self.done.append("lock")
+            return lock_ok
+        acts["lock"] = lock
 
         def on_lock():
             self.locks += 1
@@ -72,6 +78,19 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.done, ["lock", "screen_off"])
         p._active(self.now[0])
         self.assertEqual(self.done, ["lock", "screen_off", "screen_on"])
+
+    def test_failed_lock_never_turns_screen_off(self):
+        """S2: si no se pudo bloquear, apagar la pantalla dejaría la sesión abierta a oscuras."""
+        p = self.make(result=False, lock_ok=False)
+        p._idle(0.0)
+        self.run_for(400)
+        self.assertEqual(self.done, ["lock"])            # lo intentó una vez y NO apagó la pantalla
+        self.assertEqual(p.state, "lock_failed")
+        self.assertIn("bloquear", p.error)
+        p._active(self.now[0])
+        self.assertNotIn("screen_on", self.done)         # no la había apagado: nada que encender
+        self.run_for(1)
+        self.assertEqual(p.state, "active")
 
     def test_face_prevents_lock(self):
         p = self.make(result=True)

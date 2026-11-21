@@ -1,8 +1,12 @@
 """Wi-Fi, Bluetooth y modo avión."""
-from ..common import *  # noqa: F401,F403
+from gi.repository import GLib, Gio
+
+from ..util.fmt import nm_split
+from ..util.proc import run
 
 
 class Bluetooth:
+    """Estado y control de Bluetooth (bluetoothctl)."""
     def __init__(self, sysbus, on_change, on_connect):
         self.bus, self.on_change, self.on_connect = sysbus, on_change, on_connect
         self.adapter, self.powered, self.devices, self.busy = None, False, {}, set()
@@ -73,7 +77,22 @@ class Bluetooth:
                       None, None, 0, 30000, None, done)
 
 
+def wifi_connect_command(net, password, known):
+    """Orden de nmcli para conectarse a `net`: (argv, stdin), o None si hace falta pedir la contraseña.
+    La contraseña va por la entrada estándar con `--ask`, nunca en argv: los argumentos de un proceso
+    los puede leer cualquier usuario del equipo en /proc/<pid>/cmdline o con `ps`."""
+    ssid = net["ssid"]
+    if ssid in known and password is None:
+        return ["nmcli", "connection", "up", "id", ssid], None
+    if net["secure"] and password is None:
+        return None
+    if password:
+        return ["nmcli", "--ask", "device", "wifi", "connect", ssid], password + "\n"
+    return ["nmcli", "device", "wifi", "connect", ssid], None
+
+
 class Wifi:
+    """Redes Wi-Fi y conexión con nmcli."""
     def __init__(self, sysbus, on_change):
         self.on_change = on_change
         self.enabled, self.active, self.wired, self.nets, self.known = False, None, False, [], set()
@@ -138,16 +157,13 @@ class Wifi:
         return False
 
     def connect(self, net, password=None, on_need_password=None):
-        ssid = net["ssid"]
-        if ssid in self.known and password is None:
-            argv = ["nmcli", "connection", "up", "id", ssid]
-        elif net["secure"] and password is None:
+        cmd = wifi_connect_command(net, password, self.known)
+        if cmd is None:
             if on_need_password:
                 on_need_password(net)
             return
-        else:
-            argv = ["nmcli", "device", "wifi", "connect", ssid] + (["password", password] if password else [])
-        self.busy, self.error = ssid, None
+        argv, stdin = cmd
+        self.busy, self.error = net["ssid"], None
         self.on_change()
 
         def done(ok, _out, err):
@@ -158,7 +174,7 @@ class Wifi:
                                                       else "")
             self.refresh()
             self.scan()
-        run(argv, done)
+        run(argv, done, stdin=stdin)
 
 
 class Radios:

@@ -1,7 +1,13 @@
 """Dólar en Colombia: TRM oficial (datos.gov.co) con historial; respaldo en open.er-api.com."""
 import threading
 
-from ..common import *  # noqa: F401,F403
+import time
+
+from gi.repository import GLib
+
+from ..util.net import fetch_json
+from ..util.proc import dbg
+from .poller import Poller
 
 TRM_URL = ("https://www.datos.gov.co/resource/32sa-8pi3.json"
            "?$select=valor,vigenciadesde&$order=vigenciadesde%20DESC&$limit=45")
@@ -16,6 +22,7 @@ def cop(v, decimals=2):
 
 
 class Fx:
+    """Cotización del dólar (TRM): la consulta cada cierto tiempo y avisa del cambio del día."""
     def __init__(self, on_change, on_new_day, enabled=lambda: True):
         self.on_change, self.on_new_day, self.enabled = on_change, on_new_day, enabled
         self.trm = None          # valor de hoy
@@ -26,8 +33,7 @@ class Fx:
         self.error = None
         self.updated = None
         self._busy = False
-        GLib.timeout_add_seconds(5, self._kick)
-        GLib.timeout_add_seconds(EVERY, self._kick)
+        self.poll = Poller(self._kick).soon(5).every(EVERY)
 
     def change(self):
         if self.trm and self.prev:
@@ -68,7 +74,7 @@ class Fx:
             self.error = err
             dbg("fx:", err)
             self.on_change()
-            GLib.timeout_add_seconds(120, lambda: (self._kick(), False)[1])
+            self.poll.retry(120)
             return False
         self.error = None
         old_day = self.day

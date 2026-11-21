@@ -1,7 +1,13 @@
 """Grabación de pantalla con wf-recorder (pantalla completa o un área, con o sin audio)."""
 import signal
 
-from ..common import *  # noqa: F401,F403
+import os
+import subprocess
+import time
+
+from gi.repository import GLib
+
+from ..util.proc import dbg
 
 
 def videos_dir():
@@ -23,6 +29,7 @@ def _audio_device(kind):
 
 
 class Recorder:
+    """Grabación de pantalla (wf-recorder) con estado y duración."""
     AUDIO = (("none", "Sin audio"), ("mic", "Micrófono"), ("system", "Sonido del equipo"))
 
     def __init__(self, on_change, on_done):

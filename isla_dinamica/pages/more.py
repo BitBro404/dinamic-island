@@ -1,20 +1,22 @@
 """Página «Más»: herramientas extra y activar o desactivar funciones."""
-from ..common import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..ui.gtk import button, icon, label
+from .base import Page
 from .registry import FEATURES, page
 
 
-class MorePage:
+class MorePage(Page):
+    """Más: accesos a las herramientas y los interruptores de cada función."""
     PAGES = {
         "more": page("_build_more", "_fill_more", ("features",)),
     }
 
-    @classmethod
-    def _tools(cls):
-        """Accesos declarados por las páginas (TOOLS = (tool(...),)), en orden."""
-        out = []
-        for klass in reversed(cls.__mro__):
-            out.extend(klass.__dict__.get("TOOLS", ()))
-        return out
+    @staticmethod
+    def _tools():
+        """Accesos declarados por las páginas (TOOLS = (tool(...),)): la última página registrada va primero."""
+        from . import PAGE_CLASSES          # import tardío: pages/__init__ importa esta página
+        return [t for klass in reversed(PAGE_CLASSES) for t in klass.TOOLS]
 
     def _build_more(self):
         box = self._page("Más")

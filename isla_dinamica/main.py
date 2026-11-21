@@ -1,5 +1,7 @@
 """Punto de entrada."""
-from .common import *  # noqa: F401,F403
+from gi.repository import Gdk, Gtk
+
+from .ui.style import CSS
 from .core import Core
 
 

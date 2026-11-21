@@ -1,13 +1,18 @@
 """Teams y correo de Outlook (a partir de sus notificaciones)."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..ui.gtk import button, clear
+from ..util.fmt import ago, today_count
+from ..util.links import OUTLOOK_URL
+from ..util.proc import open_uri
+from .base import Page
 from .registry import feature, page
 
 feature("ms", "Teams y correo", "Mensajes de Teams y Outlook a partir de sus notificaciones")
 
 
-class MicrosoftPage:
+class MicrosoftPage(Page):
+    """Teams y correo: notificaciones recientes agrupadas, con contador de novedades del día."""
     PAGES = {
         "ms": page("_build_ms", "_fill_ms", ("ms", "notifs"), "_open_ms"),
     }

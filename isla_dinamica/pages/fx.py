@@ -1,8 +1,11 @@
 """Dólar: TRM de hoy, últimos 30 días y conversor USD ⇄ COP."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..ui.gtk import button, icon, label, set_accent
+from ..ui.widgets.charts import Spark
+from ..util.fmt import MESES, ago_long
 from ..services.fx import cop
+from .base import Page
 from .registry import feature, page, tool
 
 feature("fx", "Dólar (TRM)", "TRM del día, su variación y un conversor USD ⇄ COP")
@@ -27,7 +30,8 @@ def _num(text):
         return None
 
 
-class FxPage:
+class FxPage(Page):
+    """Dólar en pesos colombianos: valor de hoy, variación e historial."""
     PAGES = {
         "fx": page("_build_fx", "_fill_fx", ("fx",)),
     }

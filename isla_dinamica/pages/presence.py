@@ -1,17 +1,24 @@
 """Sensor de presencia: bloquear y apagar la pantalla si no hay nadie frente a la cámara."""
-from ..common import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+import time
+
+from gi.repository import Gtk
+
+from ..services.presence import FaceDetector, presence_label
+from ..ui.gtk import button, label, set_accent, set_class
+from ..util.fmt import ago, hm
+from .base import Page
 from .registry import feature, page, tool
 
 feature("presence", "Presencia (cámara)",
         "Si no hay nadie frente a la cámara ni usas el teclado o el ratón, bloquea y apaga la pantalla")
 
 _DAYS = "LMXJVSD"
-_ACCENT = {"present": "green", "watching": None, "active": None, "warning": "orange", "locked": "red",
+_ACCENT = {"present": "green", "watching": None, "active": None, "warning": "orange", "locked": "red", "lock_failed": "red",
            "no_cv": "orange", "off_hours": None, "paused": "blue", "off": None}
 
 
-class PresencePage:
+class PresencePage(Page):
+    """Presencia: estado del sensor de cámara, horario y opciones de bloqueo automático."""
     PAGES = {
         "presence": page("_build_presence", "_fill_presence", ("presence", "features")),
     }
@@ -107,6 +114,8 @@ class PresencePage:
             sub = "Apagado: no usa la cámara ni bloquea"
         elif st == "no_cv":
             sub = p.error or FaceDetector.INSTALL
+        elif st == "lock_failed":
+            sub = p.error + " · revisa el bloqueo de pantalla del sistema"
         elif st == "off_hours":
             sub = f"Funciona de {conf['start']} a {conf['end']} ({self._pr_days_text()})"
         elif st == "paused":

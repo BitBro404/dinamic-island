@@ -1,5 +1,8 @@
 """Descargas en curso (Chrome: *.crdownload, Firefox: *.part) y terminadas en la carpeta Descargas."""
-from ..common import *  # noqa: F401,F403
+import os
+import time
+
+from gi.repository import GLib, Gio
 
 PARTIAL = (".crdownload", ".part")
 STALL = 60          # un parcial que no cambia en este tiempo está detenido (o abandonado)

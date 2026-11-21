@@ -3,7 +3,12 @@ import threading
 
 __all__ = ["GitWatch"]
 
-from ..common import *  # noqa: F401,F403
+import os
+import subprocess
+import time
+
+from gi.repository import GLib
+from .poller import Poller
 
 SKIP = {"node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", "vendor", "target", ".next",
         ".cache", ".idea", ".vscode", "uploads"}
@@ -104,6 +109,7 @@ def summary(s):
 
 
 class GitWatch:
+    """Vigila repos git locales: cambios sin confirmar y commits nuevos en el remoto."""
     def __init__(self, config, on_change, on_event, enabled=lambda: True):
         self.config, self.on_change, self.on_event, self.enabled = config, on_change, on_event, enabled
         self.repos = []            # [status] ordenados: con algo pendiente primero
@@ -112,8 +118,7 @@ class GitWatch:
         self._busy = False
         self._last_fetch = 0.0
         self._behind = {}
-        GLib.timeout_add_seconds(6, self._kick)
-        GLib.timeout_add_seconds(EVERY, self._kick)
+        self.poll = Poller(self._kick).soon(6).every(EVERY)
 
     @property
     def folders(self):

@@ -1,5 +1,13 @@
 """Clima de Open-Meteo."""
-from ..common import *  # noqa: F401,F403
+import threading
+import time
+import urllib.parse
+
+from gi.repository import GLib
+
+from ..util.fmt import tz_city
+from ..util.net import fetch_json
+from .poller import Poller
 
 
 WMO = {0: ("Despejado", "clear"), 1: ("Mayormente despejado", "clear"), 2: ("Parcialmente nublado", "few-clouds"),
@@ -45,9 +53,8 @@ class Weather:
     def __init__(self, config, on_change):
         self.cfg, self.on_change = config, on_change
         self.data, self.place, self.error, self.loading = None, None, None, False
-        self._retry = None
+        self.poll = Poller(self.refresh).every(1200)
         self.refresh()
-        GLib.timeout_add_seconds(1200, lambda: (self.refresh(), True)[1])
 
     @property
     def city(self):
@@ -93,17 +100,11 @@ class Weather:
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _retry_now(self):
-        self._retry = None
-        self.refresh()
-        return False
-
     def _done(self, place, w, err):
         self.loading = False
         if err:
             self.error = err
-            if not self._retry:      # la red falla a ratos: reintentar en un minuto, no en 20
-                self._retry = GLib.timeout_add_seconds(60, self._retry_now)
+            self.poll.retry(60)      # la red falla a ratos: reintentar en un minuto, no en 20
         else:
             cur, daily, hourly = w["current"], w["daily"], w["hourly"]
             now_h = cur["time"][:13]

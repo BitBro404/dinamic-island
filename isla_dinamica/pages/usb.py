@@ -1,11 +1,13 @@
 """Medios extraíbles."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gio, Gtk
+
+from ..ui.gtk import button, clear, icon
+from .base import Page
 from .registry import page
 
 
-class UsbPage:
+class UsbPage(Page):
+    """USB: unidades conectadas, abrir y expulsar."""
     PAGES = {
         "usb": page("_build_usb", "_fill_usb", ("usb",), "_open_usb"),
     }

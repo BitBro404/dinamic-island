@@ -1,7 +1,13 @@
 """Recordatorios: «llamar a Ana en 20 min», «daily a las 9:30», «mañana a las 8 pagar luz»."""
 import re
 
-from ..common import *  # noqa: F401,F403
+import json
+import os
+import time
+
+from gi.repository import GLib
+
+from ..util.fmt import DIAS, hm
 
 REMINDERS_PATH = os.path.join(GLib.get_user_config_dir(), "isla-dinamica", "reminders.json")
 DEFAULT_MIN = 30
@@ -87,6 +93,7 @@ def when(ts):
 
 
 class Reminders:
+    """Recordatorios guardados en disco que disparan un aviso a su hora."""
     def __init__(self, on_change, on_due):
         self.on_change, self.on_due = on_change, on_due
         self.items = []                 # [{id, text, at}] ordenados por hora

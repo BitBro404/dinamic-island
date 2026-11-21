@@ -1,5 +1,12 @@
 """Pull requests de GitHub con la herramienta gh."""
-from ..common import *  # noqa: F401,F403
+import json
+import time
+
+from gi.repository import GLib
+
+from ..util.fmt import ago_long, iso_ts
+from ..util.proc import dbg, run
+from .poller import Poller
 
 
 class GitHub:
@@ -16,7 +23,7 @@ class GitHub:
         self._known = None        # PR con revisión pedida ya vistas (None = primera carga, no avisar)
         self._prev = {}           # estado anterior de mis PR (CI y revisión)
         self.refresh()
-        GLib.timeout_add_seconds(180, lambda: (self.refresh(), True)[1])
+        self.poll = Poller(self.refresh).every(180)
 
     def refresh(self):
         if self.loading or not self.enabled():

@@ -1,5 +1,10 @@
 """Música (MPRIS) y volumen."""
-from ..common import *  # noqa: F401,F403
+import re
+import subprocess
+
+from gi.repository import GLib, Gio
+
+from ..util.proc import run, tied
 
 
 class Media:
@@ -63,7 +68,17 @@ class Media:
                       Gio.DBusCallFlags.NONE, 1000, None, None, None)
 
 
+VOLUME_CMD = ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]
+
+
+def parse_volume(out):
+    """«Volume: 0.45 [MUTED]» → (0.45, True). Sin número → (0.0, False)."""
+    m = re.search(r"([\d.]+)", out or "")
+    return (float(m.group(1)) if m else 0.0), ("MUTED" in (out or ""))
+
+
 class Volume:
+    """Volumen de la salida por defecto (PipeWire): escucha `pactl subscribe` y relee con wpctl al cambiar."""
     def __init__(self, on_change):
         self.on_change = on_change
         self.value, self.muted = self.read()
@@ -79,12 +94,10 @@ class Volume:
 
     @staticmethod
     def read():
+        """Lectura síncrona: solo al arrancar. Los cambios se leen con `run` (sin bloquear la interfaz)."""
         try:
-            out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
-                                 capture_output=True, text=True, timeout=1).stdout
-            m = re.search(r"([\d.]+)", out)
-            return (float(m.group(1)) if m else 0.0), ("MUTED" in out)
-        except Exception:
+            return parse_volume(subprocess.run(VOLUME_CMD, capture_output=True, text=True, timeout=1).stdout)
+        except (OSError, subprocess.SubprocessError):
             return 0.0, False
 
     def _on_line(self, stream, res):
@@ -101,11 +114,14 @@ class Volume:
 
     def _check(self):
         self._pending = None
-        v, m = self.read()
-        if abs(v - self.value) > 0.004 or m != self.muted:
+        run(VOLUME_CMD, self._got)
+        return False
+
+    def _got(self, ok, out, _err):
+        v, m = parse_volume(out if ok else "")
+        if ok and (abs(v - self.value) > 0.004 or m != self.muted):
             self.value, self.muted = v, m
             self.on_change(v, m)
-        return False
 
     @staticmethod
     def step(up):

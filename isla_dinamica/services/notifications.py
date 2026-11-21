@@ -1,5 +1,9 @@
 """Notificaciones del escritorio."""
-from ..common import *  # noqa: F401,F403
+import time
+
+from gi.repository import GLib, GdkPixbuf, Gio
+
+from ..util.fmt import strip_markup
 
 
 class Notifications:

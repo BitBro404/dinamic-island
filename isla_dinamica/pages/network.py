@@ -1,13 +1,17 @@
 """Red: velocidad en vivo, interfaz, IP local, VPN e Internet."""
-from ..common import *  # noqa: F401,F403
-from ..widgets import *  # noqa: F401,F403
-from ..services import *  # noqa: F401,F403
+from gi.repository import Gtk
+
+from ..services.netmon import fmt_rate
+from ..ui.gtk import clear, label, set_accent
+from ..ui.widgets.charts import Spark
+from .base import Page
 from .registry import feature, page, tool
 
 feature("netmon", "Red y VPN", "Velocidad de bajada y subida, VPN activa y aviso si se cae Internet o la VPN")
 
 
-class NetworkPage:
+class NetworkPage(Page):
+    """Red: velocidad en vivo, interfaz, IP local, VPN e Internet."""
     PAGES = {
         "network": page("_build_network", "_fill_network", ("netmon",)),
     }

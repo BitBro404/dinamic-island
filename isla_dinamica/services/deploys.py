@@ -1,5 +1,13 @@
 """Despliegues en vivo: los que Railway (u otra plataforma) reporta a GitHub como «deployments»."""
-from ..common import *  # noqa: F401,F403
+import json
+import time
+
+from gi.repository import GLib
+
+from ..util.fmt import iso_ts
+from ..util.proc import dbg, run
+from ..util.safety import is_safe_web_url
+from .poller import Poller
 
 ACTIVE_STATES = ("IN_PROGRESS", "QUEUED", "PENDING", "WAITING")
 STUCK_AFTER = 45 * 60      # «en curso» hace más de esto: la plataforma no informó el final (trabado)
@@ -16,6 +24,16 @@ _DEPLOY_FIELDS = """nameWithOwner deployments(last: 4, orderBy: {field: CREATED_
   latestStatus { state createdAt environmentUrl logUrl } } }"""
 
 
+def deploy_url(status, repo):
+    """Enlace del despliegue: el log o la web que informó la plataforma si es una URL segura;
+    si no, la lista de despliegues del repo en GitHub."""
+    st = status or {}
+    for url in (st.get("logUrl"), st.get("environmentUrl")):
+        if url and is_safe_web_url(url):
+            return url
+    return f"https://github.com/{repo}/deployments"
+
+
 class Deploys:
     """Consulta con `gh` los despliegues recientes de los repos con actividad en las últimas 3 semanas.
     Cada 30 s si hay alguno en curso; si no, cada 90 s. Una sola consulta GraphQL por vuelta."""
@@ -26,25 +44,14 @@ class Deploys:
         self.repos, self._repos_t = [], 0.0
         self.loading, self.updated, self.error = False, 0.0, ""
         self._known = None         # ids vistos (None = primera carga: no avisar de lo viejo)
-        self._timer = None
-        self._schedule(6)
+        self.poll = Poller(self.refresh).soon(6)
 
     # ── consultas ──
-    def _schedule(self, secs):
-        if self._timer:
-            GLib.source_remove(self._timer)
-        self._timer = GLib.timeout_add_seconds(secs, self._tick)
-
-    def _tick(self):
-        self._timer = None
-        self.refresh()
-        return False
-
     def refresh(self):
         if self.loading:
             return
         if not self.enabled() or not GLib.find_program_in_path("gh"):
-            self._schedule(120)
+            self.poll.soon(120)
             return
         self.loading = True
         if not self.repos or time.time() - self._repos_t > 1800:
@@ -80,7 +87,7 @@ class Deploys:
         self.error = "No se pudo consultar GitHub"
         dbg("deploys error:", (err or "").strip()[:200])
         self.on_change()
-        self._schedule(120)
+        self.poll.soon(120)
 
     @staticmethod
     def _item(repo, n):
@@ -90,7 +97,7 @@ class Deploys:
                 "env": env.split(" / ")[-1], "project": env.split(" / ")[0] if " / " in env else "",
                 "state": st.get("state") or n.get("state") or "PENDING",
                 "created": iso_ts(n["createdAt"]), "changed": iso_ts(st.get("createdAt") or n["createdAt"]),
-                "url": st.get("logUrl") or st.get("environmentUrl") or f"https://github.com/{repo}/deployments",
+                "url": deploy_url(st, repo),
                 "commit": ((n.get("commit") or {}).get("messageHeadline") or "")[:80],
                 "by": (n.get("creator") or {}).get("login", "")}
 
@@ -125,7 +132,7 @@ class Deploys:
         self.items = items
         self.loading, self.updated, self.error = False, time.time(), ""
         self.on_change()
-        self._schedule(30 if self.active() else 90)
+        self.poll.soon(30 if self.active() else 90)
 
     # ── consultas para la interfaz ──
     @staticmethod

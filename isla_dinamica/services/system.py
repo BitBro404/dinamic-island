@@ -1,5 +1,10 @@
 """Modos del sistema y medios extraíbles."""
-from ..common import *  # noqa: F401,F403
+import os
+import re
+
+from gi.repository import GLib, Gio
+
+from ..util.proc import open_uri
 
 
 class Modes:
