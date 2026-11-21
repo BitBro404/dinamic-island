@@ -16,6 +16,8 @@ from .servers import ServersPage  # noqa: F401
 from .system import SystemPage  # noqa: F401
 from .network import NetworkPage  # noqa: F401
 from .downloads import DownloadsPage  # noqa: F401
+from .reminders import RemindersPage  # noqa: F401
+from .fx import FxPage  # noqa: F401
 from .more import MorePage  # noqa: F401
 
-PAGE_CLASSES = (HomePage, WifiPage, BluetoothPage, ClipboardPage, NotificationsPage, UsbPage, TimerPage, PomodoroPage, PowerPage, WeatherPage, GitHubPage, MicrosoftPage, DeploysPage, ServersPage, SystemPage, NetworkPage, DownloadsPage, MorePage)
+PAGE_CLASSES = (HomePage, WifiPage, BluetoothPage, ClipboardPage, NotificationsPage, UsbPage, TimerPage, PomodoroPage, PowerPage, WeatherPage, GitHubPage, MicrosoftPage, DeploysPage, ServersPage, SystemPage, NetworkPage, DownloadsPage, RemindersPage, FxPage, MorePage)

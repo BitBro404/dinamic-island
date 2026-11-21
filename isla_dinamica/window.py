@@ -720,6 +720,12 @@ class IslandWindow(*PAGE_CLASSES, Gtk.Window):
                           text=d["name"] + (f" (+{n - 1})" if n > 1 else ""),
                           right="label", right_text=rate, right_accent="blue")
             self._show("compact", (300, H))
+        elif c.feature("reminders") and c.reminders.next() and c.reminders.next()["at"] - time.time() < 300:
+            r = c.reminders.next()
+            self._compact("icon", "alarm-symbolic", "blue", text=r["text"],
+                          right="label", right_text=fmt_secs(max(0, r["at"] - time.time())), right_accent="blue")
+            nat = self._natural("compact", 0)
+            self._show("compact", (max(200, min(340, nat + 4)), H))
         elif playing:
             if pomo_on:
                 self._compact("art", text=m["title"], right="label", right_text=fmt_secs(p.left()),

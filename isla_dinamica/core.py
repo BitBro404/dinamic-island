@@ -38,6 +38,9 @@ class Core:
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
+        self.reminders = Reminders(lambda: self.changed("reminders"), self._on_reminder)
+        self._rm_minute = None
+        self.fx = Fx(lambda: self.changed("fx"), self._on_fx_day, lambda: self.feature("fx"))
         self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
         self.downloads = Downloads(lambda: self.changed("downloads"), self._on_download,
                                    lambda: self.feature("downloads"))
@@ -241,6 +244,24 @@ class Core:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
 
+    def _on_reminder(self, r, late=False):
+        if not self.feature("reminders"):
+            return
+        play_sound("alarm-clock-elapsed.oga", "complete.oga")
+        hm = time.strftime("%H:%M", time.localtime(r["at"]))
+        self.show_event(20.0, kind="card", icon="alarm-symbolic",
+                        app=f"Recordatorio · pendiente desde las {hm}" if late else f"Recordatorio · {hm}",
+                        title=r["text"], body="Clic para posponer 10 min",
+                        action=lambda: (self.reminders.snooze(r, 10),
+                                        self.show_event(2.0, kind="pill", icon="alarm-symbolic", accent="blue",
+                                                        text="Pospuesto 10 min")))
+
+    def _on_fx_day(self):
+        ch = self.fx.change()
+        right = None if ch is None else f"{'▲' if ch > 0 else '▼'} {abs(ch):.1f}%".replace(".", ",")
+        self.show_event(5.0, kind="pill", icon="money-symbolic", text=f"TRM hoy {cop(self.fx.trm)}",
+                        right=right, right_accent=None if ch is None else "red" if ch > 0 else "green")
+
     def _on_download(self, kind, d):
         if kind == "done":
             path = d["path"]
@@ -406,6 +427,12 @@ class Core:
                     subprocess.Popen(["pw-play", snd], stderr=subprocess.DEVNULL)
                     break
         self.pomo.tick()
+        self.reminders.tick()
+        minute = int(time.time() // 60)
+        if minute != self._rm_minute:          # «en 12 min» se actualiza cada minuto
+            self._rm_minute = minute
+            if self.reminders.items:
+                self.changed("reminders")
         self.media = self.mpris.poll()
         self._load_art()
         self.refresh()
