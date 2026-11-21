@@ -12,3 +12,4 @@ from .pomodoro import *  # noqa: F401,F403
 from .deploys import *  # noqa: F401,F403
 from .privacy import *  # noqa: F401,F403
 from .servers import *  # noqa: F401,F403
+from .sysmon import *  # noqa: F401,F403

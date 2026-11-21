@@ -13,6 +13,7 @@ from .github import GitHubPage  # noqa: F401
 from .microsoft import MicrosoftPage  # noqa: F401
 from .deploys import DeploysPage  # noqa: F401
 from .servers import ServersPage  # noqa: F401
+from .system import SystemPage  # noqa: F401
 from .more import MorePage  # noqa: F401
 
-PAGE_CLASSES = (HomePage, WifiPage, BluetoothPage, ClipboardPage, NotificationsPage, UsbPage, TimerPage, PomodoroPage, PowerPage, WeatherPage, GitHubPage, MicrosoftPage, DeploysPage, ServersPage, MorePage)
+PAGE_CLASSES = (HomePage, WifiPage, BluetoothPage, ClipboardPage, NotificationsPage, UsbPage, TimerPage, PomodoroPage, PowerPage, WeatherPage, GitHubPage, MicrosoftPage, DeploysPage, ServersPage, SystemPage, MorePage)

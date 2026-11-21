@@ -39,6 +39,7 @@ class Core:
         self.pomo = Pomodoro(self.config, self._on_pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
         self.privacy = Privacy(lambda: self.changed("privacy"), self._on_privacy, lambda: self.feature("privacy"))
+        self.sysmon = SysMon(lambda: self.changed("sysmon"), self._on_sysmon, lambda: self.feature("sysmon"))
         self.servers = Servers(lambda: self.changed("servers"), self._on_server, lambda: self.feature("servers"))
         self.deploys = Deploys(lambda: self.changed("deploys"), self._on_deploy, lambda: self.feature("deploys"))
         self.github = GitHub(lambda: self.changed("github"), self._on_github, lambda: self.feature("github"))
@@ -236,6 +237,18 @@ class Core:
         else:
             self.show_event(3.5, kind="pill", icon="audio-input-microphone-symbolic", accent="orange",
                             text=f"{who} está usando el micrófono")
+
+    def _on_sysmon(self, kind, name, value):
+        if kind == "cpu":
+            self.show_event(6.0, kind="pill", icon="utilities-system-monitor-symbolic", accent="orange",
+                            text=f"{name} usa mucha CPU", right=f"{value:.0f}%", right_accent="orange")
+        elif kind == "ram":
+            self.show_event(6.0, kind="pill", icon="dialog-warning-symbolic", accent="red",
+                            text="Queda poca memoria" + (f" · {name}" if name else ""),
+                            right=f"{value:.0f}% libre", right_accent="red")
+        else:
+            self.show_event(6.0, kind="pill", icon="dialog-warning-symbolic", accent="red",
+                            text="La CPU está muy caliente", right=f"{value:.0f}°", right_accent="red")
 
     def _on_server(self, kind, s):
         where = f"{s['name']} · :{s['port']}"

@@ -297,6 +297,47 @@ class PrivacyDots(Gtk.DrawingArea):
         return False
 
 
+class Spark(Gtk.DrawingArea):
+    """Gráfica pequeña (línea con relleno) de una serie de valores entre lo y hi."""
+
+    def __init__(self, color, lo=0.0, hi=100.0, h=34):
+        super().__init__()
+        self.color, self.lo, self.hi, self.values = color, lo, hi, []
+        self.set_size_request(-1, h)
+        self.connect("draw", self._draw)
+
+    def set_values(self, values, lo=None, hi=None):
+        self.values = list(values)
+        if lo is not None:
+            self.lo = lo
+        if hi is not None:
+            self.hi = hi
+        self.queue_draw()
+
+    def _draw(self, _w, cr):
+        a = self.get_allocation()
+        w, h = a.width, a.height
+        v = self.values
+        if len(v) < 2:
+            return False
+        span = max(1e-6, self.hi - self.lo)
+        step = w / (len(v) - 1)
+        pts = [(i * step, h - 1 - (min(max(x, self.lo), self.hi) - self.lo) / span * (h - 2)) for i, x in enumerate(v)]
+        cr.move_to(0, h)
+        for x, y in pts:
+            cr.line_to(x, y)
+        cr.line_to(w, h)
+        cr.close_path()
+        cr.set_source_rgba(*self.color, 0.22)
+        cr.fill()
+        for i, (x, y) in enumerate(pts):
+            (cr.move_to if i == 0 else cr.line_to)(x, y)
+        cr.set_source_rgb(*self.color)
+        cr.set_line_width(1.6)
+        cr.stroke()
+        return False
+
+
 class TempBar(Gtk.DrawingArea):
     """Barra de rango mín–máx de un día, relativa al rango de toda la semana."""
 
