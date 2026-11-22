@@ -255,6 +255,15 @@ python3 tests/harness.py github ghacct ghrepo --wait 6 --setup tests/fixtures/gi
 - Hecho: quitados el desplegable, `_on_primary`, `Page._opts_slot` y `util/screens.py` (`primary_index`) con su
   prueba (código muerto). 410 pruebas OK, instalado; captura de los dos monitores igual a la del usuario.
 
+## Ampliación P10 (2026-11-22): desconectar repos y dejar de vigilar, con confirmación
+- Pedido: poder quitar la supervisión de un proyecto y desconectar un repo de la isla, pidiendo confirmación.
+- Hecho: `config.git_ignored` (rutas absolutas, validadas y sin repetir); `GitWatch.ignored/disconnect/reconnect`;
+  `_scan` salta los desconectados aunque estén dentro de una carpeta vigilada. Proyectos: ✕ «Desconectar» por
+  repo, «Dejar de vigilar» carpeta con segundo clic (`_pj_danger`/`_pj_confirm`, 8 s), sección DESCONECTADOS con
+  «Volver a conectar». GitHub › Proyectos: «Quitar de la cuenta» con `_confirmed`. Nada se borra del disco.
+- Pruebas: `tests/unit/test_disconnect.py` (5, vistas en rojo). 415 OK. Capturas con
+  `tests/fixtures/disconnect_demo.py` (confirmación y DESCONECTADOS).
+
 ## Seguridad 2 (2026-11-22): revisión del código nuevo (GitHub/git, terminales, servidores, Docker)
 Revisión previa (S1–S9, 2026-11-21) cubría Wi-Fi, URLs, portapapeles, bloqueo, descargas y config 0600.
 Modelo de amenaza: otro usuario local; un repo o rama de terceros (clonado, descargado o de un colaborador);

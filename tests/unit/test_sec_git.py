@@ -64,6 +64,7 @@ class UntrustedRepoTest(unittest.TestCase):
         t = self.trap("uploadpack")
         git(self.r.work, "config", "remote.origin.uploadpack", t.path)
         w = gitwatch.GitWatch.__new__(gitwatch.GitWatch)
+        w.config = mock.Mock(data={"git_ignored": []})
         with mock.patch.object(gitwatch.GLib, "idle_add"):
             w._scan([os.path.dirname(self.r.work)], True)
         self.assertFalse(t.ran)

@@ -17,6 +17,7 @@ DEFAULTS = {"city": None,
             "git_folders": ["~/Documentos/WM"],   # carpetas con repos que vigila «Proyectos»
             "github_account": None,               # cuenta de gh que usa la isla (None = la activa de gh)
             "account_folders": {},                # cuenta de gh → proyectos (carpetas) que sigue esa cuenta
+            "git_ignored": [],                    # repos desconectados: la isla no los vigila (rutas absolutas)
             "servers_recent": [],                 # servidores detenidos: carpeta, comando y PATH para relanzarlos
             "pomodoro": {"work": 25, "short": 5, "long": 15, "every": 4, "auto": True},
             # sensor de presencia: minutos sin nadie, aviso previo (s), pausa (epoch) y horario (0 = lunes)
@@ -101,6 +102,13 @@ class Config:
                 for r in reversed([_server_entry(r) for r in loaded["servers_recent"] if _server_entry(r)]):
                     recent = remember(recent, r, now=r["when"])
                 self.data["servers_recent"] = recent
+            if isinstance(loaded.get("git_ignored"), list):
+                ignored = []
+                for p in loaded["git_ignored"]:
+                    p = os.path.expanduser(p) if isinstance(p, str) else ""
+                    if os.path.isabs(p) and os.path.normpath(p) not in ignored:
+                        ignored.append(os.path.normpath(p))
+                self.data["git_ignored"] = ignored
             if isinstance(loaded.get("git_folders"), list):
                 self.data["git_folders"] = [str(p) for p in loaded["git_folders"] if p]
             self.data["pomodoro"].update({k: v for k, v in (loaded.get("pomodoro") or {}).items()

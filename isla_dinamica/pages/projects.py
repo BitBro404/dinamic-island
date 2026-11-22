@@ -5,7 +5,7 @@ import time
 
 from gi.repository import GLib, Gio, Gtk
 
-from ..ui.gtk import button, clear, icon, label, set_accent
+from ..ui.gtk import button, clear, icon, label, set_accent, set_class
 from ..util.fmt import ago_long
 from ..util.proc import open_uri
 from ..services.gitwatch import changes, expand, short, summary
@@ -44,6 +44,8 @@ class ProjectsPage(Page):
         body.pack_start(head, False, False, 0)
         self.pj_folders = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         body.pack_start(self.pj_folders, False, False, 0)
+        self.pj_ignored = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        body.pack_start(self.pj_ignored, False, False, 0)
         row = Gtk.Box(spacing=6, margin_top=4)
         self.pj_entry = Gtk.Entry(hexpand=True, placeholder_text="Agregar carpeta, p. ej. ~/proyectos")
         self.pj_entry.connect("activate", lambda *_: self._pj_add())
@@ -61,6 +63,52 @@ class ProjectsPage(Page):
         self.core.dev.seen("behind")
         if not self.core.git.updated or time.time() - self.core.git.updated > 20:
             self.core.git.refresh()
+
+    # ── quitar con confirmación: primer clic pide «¿Seguro?», el segundo (antes de 8 s) lo hace ──
+    def _pj_danger(self, key, ic, tip, fn, ask):
+        if getattr(self, "_pj_ask", None) == key:
+            b = button("chip danger", cb=lambda: self._pj_confirm(key, fn, ask), text="¿Seguro?")
+            set_class(b, "confirm", True)
+            b.set_tooltip_text(tip)
+            return b
+        return button("ctrl", icon(ic), lambda: self._pj_confirm(key, fn, ask), tip)
+
+    def _pj_confirm(self, key, fn, ask):
+        if getattr(self, "_pj_ask", None) == key:
+            self._pj_ask = None
+            fn()
+            return
+        self._pj_ask = key
+        self._pj_msg(ask, "orange")
+        GLib.timeout_add(8000, self._pj_reset, key)
+        self._fill_projects()
+
+    def _pj_reset(self, key):
+        if getattr(self, "_pj_ask", None) == key:
+            self._pj_ask = None
+            self._pj_msg("Puedes agregar un repo o una carpeta que contenga varios")
+            self._fill_projects()
+        return False
+
+    def waiting(self):
+        return bool(getattr(self, "_pj_ask", None))
+
+    def on_collapse(self):
+        if getattr(self, "_pj_ask", None):
+            self._pj_ask = None
+            self._pj_msg("Puedes agregar un repo o una carpeta que contenga varios")
+
+    def _pj_disconnect(self, path):
+        self.core.git.disconnect(path)
+        self._pj_msg(f"Desconectado {short(path)}: la isla ya no lo vigila (no se borró nada)", "green")
+
+    def _pj_unwatch(self, folder):
+        self.core.git.remove_folder(folder)
+        self._pj_msg(f"Ya no se vigila {folder} (no se borró nada)", "green")
+
+    def _pj_reconnect(self, path):
+        self.core.git.reconnect(path)
+        self._pj_msg(f"Conectado de nuevo {short(path)}", "green")
 
     def _pj_msg(self, text, accent=None):
         self.pj_msg.set_text(text)
@@ -95,8 +143,11 @@ class ProjectsPage(Page):
                                           "section"), False, False, 0)
         for s in g.repos:
             if s.get("error"):
+                rm = self._pj_danger(f"repo:{s['path']}", "window-close-symbolic", "Desconectar de la isla",
+                                     lambda p=s["path"]: self._pj_disconnect(p),
+                                     f"¿Desconectar {s['name']}? La isla dejará de vigilarlo. Pulsa «¿Seguro?»")
                 self.pj_list.pack_start(self._row("dialog-warning-symbolic", s["name"], s["error"],
-                                                  sub_accent="red"), False, False, 0)
+                                                  extra=[rm], sub_accent="red"), False, False, 0)
                 continue
             text = summary(s)
             accent = ("red" if s["conflicts"] else "blue" if s["behind"] else
@@ -105,7 +156,10 @@ class ProjectsPage(Page):
             if s["last_ts"]:
                 sub += f" · último commit {ago_long(s['last_ts'])}"
             extra = [button("ctrl", icon("folder-open-symbolic"), lambda p=s["path"]: self._collapse_then(
-                lambda: open_uri(Gio.File.new_for_path(p).get_uri())), "Abrir carpeta")]
+                lambda: open_uri(Gio.File.new_for_path(p).get_uri())), "Abrir carpeta"),
+                     self._pj_danger(f"repo:{s['path']}", "window-close-symbolic", "Desconectar de la isla",
+                                     lambda p=s["path"]: self._pj_disconnect(p),
+                                     f"¿Desconectar {s['name']}? La isla dejará de vigilarlo. Pulsa «¿Seguro?»")]
             self.pj_list.pack_start(self._row("emblem-ok-symbolic" if text == "al día" else "document-edit-symbolic",
                                               s["name"], sub, lambda p=s["path"]: self._collapse_then(
                                                   lambda: open_in_editor(p)), extra, sub_accent=accent),
@@ -114,10 +168,22 @@ class ProjectsPage(Page):
             self._empty(self.pj_list, "Buscando repos…" if not g.updated else "No hay repos en las carpetas vigiladas")
         clear(self.pj_folders)
         for f in g.folders:
-            extra = [button("ctrl", icon("list-remove-symbolic"), lambda p=f: self.core.git.remove_folder(p),
-                            "Dejar de vigilar")]
+            extra = [self._pj_danger(f"folder:{f}", "list-remove-symbolic", "Dejar de vigilar",
+                                     lambda p=f: self._pj_unwatch(p),
+                                     f"¿Dejar de vigilar {f}? Pulsa «¿Seguro?» (no se borra nada del disco)")]
             n = sum(1 for s in g.repos if s["path"] == expand(f) or s["path"].startswith(expand(f) + os.sep))
             self.pj_folders.pack_start(self._row("folder-symbolic", f, f"{n} repo{'s' if n != 1 else ''}",
                                                  extra=extra), False, False, 0)
+        clear(self.pj_ignored)
+        if g.ignored:
+            head = label(f"DESCONECTADOS · {len(g.ignored)}", "section")
+            head.set_margin_top(8)
+            self.pj_ignored.pack_start(head, False, False, 0)
+        for p in g.ignored:
+            back = button("chip", cb=lambda p=p: self._pj_reconnect(p), text="Volver a conectar")
+            self.pj_ignored.pack_start(self._row("action-unavailable-symbolic", os.path.basename(p) or p,
+                                                 f"{short(p)} · la isla no lo vigila", extra=[back]),
+                                       False, False, 0)
         self.pj_list.show_all()
         self.pj_folders.show_all()
+        self.pj_ignored.show_all()

@@ -442,6 +442,23 @@ class GitWatch:
         self.config.data["git_folders"] = [f for f in self.folders if f != path]
         self._save()
 
+    # ── repos desconectados: siguen en el disco, pero la isla no los mira ──
+    @property
+    def ignored(self):
+        return self.config.data.setdefault("git_ignored", [])
+
+    def disconnect(self, path):
+        p = expand(path)
+        if p not in self.ignored:
+            self.ignored.append(p)
+        self.repos = [s for s in self.repos if s.get("path") != p]
+        self._save()
+
+    def reconnect(self, path):
+        p = expand(path)
+        self.config.data["git_ignored"] = [r for r in self.ignored if r != p]
+        self._save()
+
     # ── proyectos de cada cuenta de GitHub ──
     def account_folders(self, login=None):
         login = login or self.account()
@@ -547,7 +564,7 @@ class GitWatch:
         threading.Thread(target=work, daemon=True).start()
 
     def _scan(self, folders, fetch, tokens=None, mine=()):
-        repos, seen = [], set()
+        repos, seen = [], set(self.ignored)
         for f in folders:
             for r in find_repos(f):
                 if r not in seen:

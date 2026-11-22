@@ -275,7 +275,15 @@ class GitHubPage(Page):
                 sub = "Buscando repos…"
             else:
                 sub = "La carpeta ya no existe"
-            rm = button("ctrl", icon("list-remove-symbolic"), lambda f=f: self._proj_remove(f), "Quitar de la cuenta")
+            key = f"proj:{f}"
+            if self._confirm == key:
+                rm = button("chip danger", cb=lambda f=f: self._proj_remove(f), text="¿Seguro?")
+                set_class(rm, "confirm", True)
+            else:
+                rm = button("ctrl", icon("list-remove-symbolic"), lambda f=f: self._proj_remove(f),
+                            "Quitar de la cuenta")
+            if root in self.core.git.ignored:
+                sub = "Desconectado de la isla · vuelve a conectarlo en Proyectos"
             cb = (lambda p=repos[0]["path"]: self._show_repo(p)) if n == 1 else None
             self.pj_list.pack_start(self._row("folder-symbolic", f, sub, cb, [rm]), False, False, 0)
         if not folders:
@@ -294,6 +302,9 @@ class GitHubPage(Page):
         self._msg("ghproj", f"Añadido a @{self.core.gh_accounts.current}: {short(expand(path))}", "green")
 
     def _proj_remove(self, folder):
+        if not self._confirmed(f"proj:{folder}"):
+            return self._msg("ghproj", f"¿Quitar {folder} de @{self.core.gh_accounts.current}? Pulsa «¿Seguro?» "
+                             "(no se borra nada del disco)", "orange")
         self.core.git.remove_account_folder(folder)
         self._msg("ghproj", f"Quitado de @{self.core.gh_accounts.current}: {folder} (no se borra nada del disco)",
                   "green")
