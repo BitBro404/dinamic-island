@@ -50,7 +50,8 @@ def find_repos(folder, depth=DEPTH):
 
 
 COMMITS_MAX = 15
-_SLUG = re.compile(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+# solo los caracteres que GitHub admite: el slug va dentro de consultas GraphQL y de URLs
+_SLUG = re.compile(r"github\.com[:/]+([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100}?)(?:\.git)?/?$")
 # helper de credenciales que entrega el token de la cuenta elegida, leído de una variable de entorno
 # (nunca en la línea de comandos); va después de uno vacío para ignorar los demás helpers configurados
 _HELPER = '!f() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=$ISLA_GH_TOKEN"; }; f'
@@ -59,21 +60,48 @@ _HELPER = '!f() { test "$1" = get || exit 0; echo username=x-access-token; echo 
 def github_slug(url):
     """«owner/repo» de una URL remota de GitHub (https o ssh); None si no es de GitHub."""
     m = _SLUG.search(url or "")
-    return f"{m.group(1)}/{m.group(2)}" if m else None
+    if not m or m.group(2) in (".", ".."):
+        return None
+    return f"{m.group(1)}/{m.group(2)}"
 
 
-def auth_env(token):
-    """Entorno de git que usa `token` para los remotos https de GitHub."""
-    if not token:
-        return GIT_ENV
-    return dict(GIT_ENV, ISLA_GH_TOKEN=token, GIT_CONFIG_COUNT="2",
-                GIT_CONFIG_KEY_0="credential.https://github.com.helper", GIT_CONFIG_VALUE_0="",
-                GIT_CONFIG_KEY_1="credential.https://github.com.helper", GIT_CONFIG_VALUE_1=_HELPER)
+# Un .git/config no confiable (un repo descargado en una carpeta vigilada) puede ejecutar comandos cuando la
+# isla corre git sola: core.fsmonitor en cada `git status`, hooks al actualizar referencias, o un remoto local
+# con uploadpack. Lo de la línea de comandos (GIT_CONFIG_*) manda sobre el repo.
+_ALWAYS = (("core.fsmonitor", "false"),)
+_AUTOMATIC = (("core.hooksPath", "/dev/null"), ("protocol.ext.allow", "never"), ("protocol.file.allow", "never"))
 
 
-def _git_run(repo, *args, timeout=10, token=None):
+def auth_env(token, user=False):
+    """Entorno de git: sin fsmonitor; si no lo pidió el usuario (`user`), además sin hooks ni protocolos
+    locales/ext; con `token`, el helper que lo entrega solo para https://github.com."""
+    pairs = list(_ALWAYS) + ([] if user else list(_AUTOMATIC))
+    if token:
+        pairs += [("credential.https://github.com.helper", ""), ("credential.https://github.com.helper", _HELPER)]
+    env = dict(GIT_ENV, GIT_CONFIG_COUNT=str(len(pairs)))
+    for i, (k, v) in enumerate(pairs):
+        env[f"GIT_CONFIG_KEY_{i}"], env[f"GIT_CONFIG_VALUE_{i}"] = k, v
+    if token:
+        env["ISLA_GH_TOKEN"] = token
+    return env
+
+
+_NET_URL = re.compile(r"^(https?|ssh|git)://[^\s/]+", re.I)
+_SCP_URL = re.compile(r"^(?:[A-Za-z0-9._~-]+@[A-Za-z0-9.-]+|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+):[^/\\]")
+
+
+def network_remote(url):
+    """¿El remoto está en la red (https, ssh, user@host:ruta)? Las rutas locales, file:// y ext:: no: con ellas
+    un .git/config ajeno podría ejecutar un programa (uploadpack) en el fetch automático."""
+    url = (url or "").strip()
+    if not url or url.startswith("-"):
+        return False
+    return bool(_NET_URL.match(url) or _SCP_URL.match(url))
+
+
+def _git_run(repo, *args, timeout=10, token=None, user=False):
     r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=timeout,
-                       env=auth_env(token))
+                       env=auth_env(token, user))
     return r
 
 
@@ -276,10 +304,19 @@ def _files_msg(files, suffix=""):
     return f"{n} archivo{'s' if n != 1 else ''}{suffix}" + (f": {names}" if n else "")
 
 
+_BAD_REF = re.compile(r"(^-)|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|^/|/$|\.lock$|^\.|/\.")
+
+
+def valid_branch(name):
+    """Nombre de rama que se puede pasar a git sin riesgo: nada que empiece por «-» (sería una opción, p. ej.
+    «--orphan=x» de un remoto ajeno) ni caracteres que git no admite en una referencia."""
+    return isinstance(name, str) and bool(name) and len(name) <= 250 and not _BAD_REF.search(name)
+
+
 def run_op(repo, kind, token=None, **kw):
     """Operación git sobre un repo (bloqueante: llamarla en un hilo). Devuelve (ok, mensaje)."""
     def git(*args, timeout=90):
-        r = _git_run(repo, *args, timeout=timeout, token=token)
+        r = _git_run(repo, *args, timeout=timeout, token=token, user=True)   # lo pidió el usuario: con sus hooks
         lines = (r.stderr or r.stdout).strip().splitlines()
         return r.returncode == 0, lines[-1] if lines else ""
 
@@ -288,6 +325,10 @@ def run_op(repo, kind, token=None, **kw):
             return git("pull", "--ff-only")
         if kind == "push":
             return git("push")
+        for key in ("branch", "base", "name"):
+            val = str(kw.get(key) or "").strip()
+            if kind in ("switch", "create", "merge") and key in kw and val and not valid_branch(val):
+                return False, f"Nombre de rama no válido: {val[:60]}"
         if kind == "switch":
             if changes(repo_status(repo)):           # se mira al momento, no con el estado de hace un minuto
                 return False, BLOCK_SWITCH
@@ -514,8 +555,11 @@ class GitWatch:
                     repos.append(r)
         if fetch:
             for r in repos:
+                if not network_remote(_git(r, "remote", "get-url", "origin")):
+                    continue                  # sin remoto de red: nada que bajar (y nada que ejecutar)
                 try:
-                    _git(r, "fetch", "--quiet", "--no-tags", "--prune", timeout=25, token=(tokens or {}).get(r))
+                    _git(r, "fetch", "--quiet", "--no-tags", "--prune", "origin", timeout=25,
+                         token=(tokens or {}).get(r))
                 except subprocess.TimeoutExpired:
                     pass
         roots = [expand(f) for f in mine]

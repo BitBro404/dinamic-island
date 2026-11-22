@@ -1,5 +1,6 @@
 """Pull requests de GitHub con la herramienta gh."""
 import json
+import re
 import time
 
 from gi.repository import GLib
@@ -7,6 +8,8 @@ from gi.repository import GLib
 from ..util.fmt import ago_long, iso_ts
 from ..util.proc import dbg, run
 from .poller import Poller
+
+_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")      # usuario de GitHub
 
 KINDS = {"PullRequest": "PR", "Issue": "Issue", "Commit": "Commit", "Release": "Release",
          "Discussion": "Discusión", "CheckSuite": "CI", "WorkflowRun": "CI"}
@@ -160,6 +163,11 @@ class GitHub:
         self._check_access(self._query_prs)
 
     def _query_prs(self):
+        if not _LOGIN.fullmatch(self.login or ""):       # va dentro de la consulta: nada de comillas ni espacios
+            self.loading = False
+            self.state, self.error = "error", "La cuenta de gh tiene un nombre no válido"
+            self.on_change()
+            return
         theirs = ""
         mine = self.my_repos()
         if mine:

@@ -248,5 +248,29 @@ python3 tests/harness.py github ghacct ghrepo --wait 6 --setup tests/fixtures/gi
   abierto; punto azul en la píldora. Arreglo: `show_all()` no muestra una caja con `no_show_all`.
   393 pruebas OK, instalado. No visto aún con una PR nueva ni un commit por bajar reales.
 
+## Seguridad 2 (2026-11-22): revisión del código nuevo (GitHub/git, terminales, servidores, Docker)
+Revisión previa (S1–S9, 2026-11-21) cubría Wi-Fi, URLs, portapapeles, bloqueo, descargas y config 0600.
+Modelo de amenaza: otro usuario local; un repo o rama de terceros (clonado, descargado o de un colaborador);
+el contenido de GitHub. El propio usuario y sus archivos (config.json 0600) se consideran de confianza.
+
+| # | Gravedad | Riesgo | Corrección | Prueba (RED primero) |
+|---|---|---|---|---|
+| S10 | Alta | La isla ejecuta git sola (estado cada 4 s, fetch cada 5 min) en cada repo de las carpetas vigiladas. Un `.git/config` no confiable (repo descargado en un zip) ejecuta comandos: `core.fsmonitor` en cada `git status`, hooks (p. ej. `reference-transaction` en fetch), o un remoto local con `remote.<r>.uploadpack`. | Entorno de git con `core.fsmonitor=false` siempre; en lo automático además `core.hooksPath=/dev/null`, `protocol.ext.allow=never`, `protocol.file.allow=never`, y el fetch automático solo a remotos de red (https, ssh). Pull/push/merge/commit pedidos por el usuario conservan sus hooks. | `test_sec_git.py`: un fsmonitor malicioso no se ejecuta en `repo_status`; un hook no corre en el fetch automático; no se hace fetch automático de un remoto local con uploadpack; el token sigue solo para github.com. |
+| S11 | Media | Inyección en las consultas GraphQL a GitHub: `owner/repo` sale de la URL del remoto (`.git/config`) y se mete entre comillas en la consulta enviada con tu token; el login tampoco se valida. | `github_slug` solo acepta los caracteres válidos de GitHub; el login se valida antes de consultar. | `test_sec_github.py` |
+| S12 | Media | Inyección de instrucciones al asistente (Claude/OpenCode) con nombres de archivo en conflicto que vienen de la rama de otro. | Nombres sin caracteres de control ni saltos, recortados, como mucho 30, entre comillas y con la indicación de que son datos, no instrucciones. | `test_conflict_tools.py` |
+| S13 | Media | Relanzar un servidor con un PATH que tenga entradas relativas (`.` o vacías) ejecuta un `node` plantado en la carpeta del proyecto. | PATH solo con rutas absolutas; `argv[0]` se resuelve a ruta absoluta antes de ejecutar. | `test_servers_relaunch.py` |
+| S14 | Media | Detener/reiniciar manda SIGTERM a un PID guardado hace hasta 4 s: si ese PID se reutilizó, mataría otro proceso (o su grupo). | Se guarda la hora de arranque de cada PID y se comprueba antes de la señal. | `test_servers_relaunch.py` |
+| S15 | Baja | Los logs de los servidores relanzados quedan legibles por otros usuarios (0644) y pueden tener secretos. | Carpeta 0700 y archivos 0600. | `test_servers_relaunch.py` |
+| S16 | Baja | Nombres de contenedor de `servers_recent` sin validar: «--algo» se tomaría como opción de `docker start`. | Validar con el formato de nombres de Docker al cargar y al ejecutar; `--` antes de los nombres. | `test_servers_docker.py` |
+| S17 | Baja | Una rama remota cuyo nombre empiece por «-» se pasaría a `git switch/merge` como opción. | Validar con `check-ref-format` y rechazar «-» al inicio; `--end-of-options` antes del nombre. | `test_git_branches.py` |
+
+Estado: S10–S17 hechas con TDD (cada prueba vista en rojo por el motivo correcto; S10 confirmó que fsmonitor,
+hooks y uploadpack SÍ se ejecutaban; S17 confirmó que `git switch --orphan=x` SÍ se aplicaba). 413 pruebas OK,
+instalada; repo real comprobado (remoto de red, estado, fetch, página GitHub). Sin commit.
+Efecto visible: los repos con remoto local (ruta o file://) ya no se bajan solos con el fetch automático.
+Pruebas nuevas: `test_sec_git.py`, `test_sec_github.py`; ampliadas `test_conflict_tools.py`,
+`test_servers_relaunch.py`, `test_servers_docker.py`, `test_git_branches.py`; ajustadas sin aflojar
+`test_github_accounts.py` (índices de GIT_CONFIG y parámetro `user`) y `test_conflict_tools.py` (nombres entre «»).
+
 ## Registro de decisiones
 - 2026-11-22 D1 bloquear cambio de rama con cambios; D2 PR solo avisa si falta subir; D3 stash ver/aplicar/borrar.

@@ -59,6 +59,18 @@ class BranchOpsTest(unittest.TestCase):
         s = gitwatch.repo_status(self.r.work)
         self.assertEqual((s["branch"], s["upstream"]), ("devel", "origin/devel"))
 
+    def test_option_like_branch_names_are_refused(self):
+        """S17: un nombre que empieza por «-» (de un remoto ajeno o tecleado) no llega a git como opción."""
+        before = gitwatch.repo_status(self.r.work)["branch"]
+        for kind, kw in (("switch", {"branch": "--orphan=x"}), ("switch", {"branch": "-c", "remote": True}),
+                         ("merge", {"branch": "--abort"}), ("create", {"name": "nueva", "base": "-h"}),
+                         ("create", {"name": "-x", "base": "main"})):
+            ok, msg = gitwatch.run_op(self.r.work, kind, **kw)
+            self.assertFalse(ok, (kind, kw))
+            self.assertIn("no válid", msg)
+        self.assertEqual(gitwatch.repo_status(self.r.work)["branch"], before)
+        self.assertNotIn("x", [b["name"] for b in gitwatch.list_branches(self.r.work)])
+
     def test_switch_blocked_with_uncommitted_changes(self):
         with open(os.path.join(self.r.work, "a.txt"), "w") as f:
             f.write("cambio sin commit")

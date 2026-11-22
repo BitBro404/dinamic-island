@@ -334,6 +334,18 @@ El fixture acepta `BT_NAME`, `BT_BATTERY` (`none` para probar sin porcentaje), `
 
 ---
 
+### Seguridad de git, GitHub y servidores
+- La isla corre git sola (estado cada 4 s, fetch cada 5 min) en tus carpetas vigiladas. En esas órdenes
+  automáticas ignora `core.fsmonitor`, los hooks y los protocolos `file`/`ext` de cada repo, y el fetch
+  automático solo va a remotos de red (https, ssh): un repo descargado no puede ejecutar nada. Lo que pides tú
+  (pull, push, merge, terminar merge) sí usa tus hooks (husky, etc.). Los repos con remoto local ya no se bajan solos.
+- El token de la cuenta va por entorno y solo para `https://github.com`; el `owner/repo` y el login se validan
+  antes de ir en una consulta a GitHub.
+- Los nombres de rama que empiezan por «-» se rechazan; los nombres de archivo en conflicto van al asistente
+  como datos de una línea, entre «», con el aviso de que no son instrucciones.
+- Relanzar un servidor usa un PATH solo con rutas absolutas; antes de detener se comprueba que el PID sigue
+  siendo el mismo proceso; los logs son privados (0700/0600); los nombres de contenedor se validan.
+
 ## 5. Problemas frecuentes
 
 | Síntoma | Solución |

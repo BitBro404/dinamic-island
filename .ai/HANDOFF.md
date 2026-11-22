@@ -1,18 +1,18 @@
 # Handoff
 
 ## Solicitud y objetivo
-Sin tarea activa. Último trabajo (2026-11-22) validado por el usuario y en commit: ver
-`.ai/summaries/2026-11-22-github-git-servidores-dev.md`.
+Sin tarea activa. Últimos trabajos (2026-11-22) aceptados y en commit: ver
+`.ai/summaries/2026-11-22-github-git-servidores-dev.md` y `.ai/summaries/2026-11-22-seguridad-2.md`.
 
 ## Repositorios dentro del alcance
 - Único repo: `/home/luis/dinamic island` (rama `main`).
 
 ## Estado actual
 - Todo en commit (firmado con GPG). El push lo hace el usuario.
-- Plan de referencia: `plan.md` (P1–P8 hechas).
+- Plan de referencia: `plan.md` (P1–P8 y Seguridad 2 S10–S17 hechas).
 
 ## Pruebas ejecutadas y resultados
-- `make check` → 393 pruebas OK.
+- `make check` → 413 pruebas OK.
 
 ## Fallos conocidos/bloqueos
 - Ninguno abierto. Pendientes de prueba real: ver «Limitaciones» del resumen.

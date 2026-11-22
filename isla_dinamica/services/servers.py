@@ -117,7 +117,7 @@ def _is_launcher(argv):
     return any(n in LAUNCHERS for n in names) or argv[0].endswith("yarn.cjs")
 
 
-def launch_spec(pid, info=proc_info):
+def launch_spec(pid, info=proc_info, started=None):
     """Cómo se arrancó el servidor que escucha en `pid`: sube por los padres de la misma carpeta mientras sean
     lanzadores (npm, pnpm, nodemon, `sh -c`…). → {top, pid, argv, cwd, path} o None."""
     p = info(pid)
@@ -129,7 +129,9 @@ def launch_spec(pid, info=proc_info):
         if not parent or parent["cwd"] != p["cwd"] or not _is_launcher(_argv(parent)):
             break
         top, cur = cur["ppid"], parent
-    return {"top": top, "pid": pid, "argv": _argv(cur), "cwd": p["cwd"], "path": cur.get("path") or p.get("path", "")}
+    started = started or _started            # hora de arranque: antes de una señal se comprueba que el PID es el mismo
+    return {"top": top, "pid": pid, "argv": _argv(cur), "cwd": p["cwd"], "path": cur.get("path") or p.get("path", ""),
+            "top_started": started(top), "pid_started": started(pid)}
 
 
 def _key(r):
@@ -165,6 +167,23 @@ def log_path(spec, logs=LOGS):
     return os.path.join(logs, f"{name}-{spec.get('port')}.log")
 
 
+def clean_path(path):
+    """PATH solo con rutas absolutas (sin «.», vacías ni relativas): si no, al arrancar en la carpeta del proyecto
+    se ejecutaría un programa con ese nombre plantado en él."""
+    out = []
+    for d in (path or "").split(os.pathsep):
+        if d.startswith("/") and d not in out:
+            out.append(d)
+    return os.pathsep.join(out)
+
+
+def _private_log(path):
+    """Abre el log en modo añadir con permisos 0600 (puede llevar secretos del servidor)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.fchmod(fd, 0o600)
+    return os.fdopen(fd, "ab")
+
+
 def launch(spec, logs=LOGS):
     """Arranca el comando en su carpeta, en segundo plano y en su propia sesión (no muere con la isla); la salida
     va a un log. → (ok, mensaje, pid)."""
@@ -173,16 +192,18 @@ def launch(spec, logs=LOGS):
         return False, f"La carpeta ya no existe: {cwd}", None
     if not argv:
         return False, "No hay comando que relanzar", None
-    path = spec.get("path") or os.environ.get("PATH", "")
+    path = clean_path(spec.get("path") or os.environ.get("PATH", ""))
     prog = argv[0]
+    # «./mvnw» o una ruta: la escribió quien arrancó el servidor; un nombre suelto se busca solo en el PATH limpio
     found = (os.path.join(cwd, prog) if "/" in prog else shutil.which(prog, path=path))
-    if not found or not os.access(found, os.X_OK):
+    if not found or not os.access(found, os.X_OK) or os.path.isdir(found):
         return False, f"No se encuentra «{prog}»", None
     env = dict(os.environ, PATH=path)
-    os.makedirs(logs, exist_ok=True)
     try:
-        with open(log_path(spec, logs), "ab") as log:
-            proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=log,
+        os.makedirs(logs, mode=0o700, exist_ok=True)
+        os.chmod(logs, 0o700)
+        with _private_log(log_path(spec, logs)) as log:
+            proc = subprocess.Popen(argv, executable=found, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=log,
                                     stderr=subprocess.STDOUT, start_new_session=True)
     except OSError as e:
         return False, f"No se pudo arrancar: {e.strerror or e}", None
@@ -195,6 +216,10 @@ def terminate(spec):
     relanzó la isla), a todo el grupo, para que no queden hijos sueltos."""
     pids = [p for p in dict.fromkeys((spec.get("top"), spec.get("pid"))) if p]
     for pid in pids:
+        want = spec.get("top_started" if pid == spec.get("top") else "pid_started")
+        now = _started(pid)
+        if want is not None and (now is None or abs(now - want) > 1.0):
+            continue                          # ese PID ya es otro proceso (o terminó): no se toca
         try:
             if pid == spec.get("top") and os.getpgid(pid) == pid and pid != os.getpgid(0):
                 os.killpg(pid, signal.SIGTERM)
@@ -245,6 +270,7 @@ def parse_ss(text):
 # ── Docker: contenedores en marcha agrupados por proyecto de compose (o uno solo si no es de compose) ──
 DOCKER_PS = ["docker", "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Ports}}\t"
              '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.Image}}']
+DOCKER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")   # formato de nombres de contenedor de Docker
 _HOST_PORT = re.compile(r":(\d+)(?:-(\d+))?->")
 
 
@@ -423,7 +449,7 @@ class Servers:
                 self._stopping.discard(key)
                 self.on_event("failed", dict(g, msg=(err or "").strip()))
             self._refresh_soon()
-        run(["docker", verb, *g["containers"]], done)
+        run(["docker", verb, "--", *g["containers"]], done)
         return True
 
     def _refresh_soon(self):
@@ -495,12 +521,14 @@ class Servers:
             return False, "Ya no está en la lista"
         if rec[index].get("docker"):
             entry = rec[index]
+            if not all(DOCKER_NAME.fullmatch(n) for n in entry["docker"]):
+                return False, "Nombre de contenedor no válido"
 
             def done(ok, _out, err):
                 if not ok:
                     self.on_event("failed", dict(entry, msg=(err or "").strip()))
                 self._refresh_soon()
-            run(["docker", "start", *entry["docker"]], done)
+            run(["docker", "start", "--", *entry["docker"]], done)
             self._save_recent(remember(rec, entry))
             return True, f"Arrancando {entry['name']} (docker start)"
         ok, msg, _pid = launch(rec[index], self.logs)

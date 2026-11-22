@@ -120,8 +120,12 @@ class GitTest(unittest.TestCase):
         tok = fake_token("x")
         env = gitwatch.auth_env(tok)
         self.assertEqual(env["ISLA_GH_TOKEN"], tok)
-        self.assertNotIn(tok, env["GIT_CONFIG_VALUE_1"])
-        self.assertEqual(env["GIT_CONFIG_VALUE_0"], "")          # anula los demás helpers
+        n = int(env["GIT_CONFIG_COUNT"])
+        helpers = [env[f"GIT_CONFIG_VALUE_{i}"] for i in range(n)
+                   if env[f"GIT_CONFIG_KEY_{i}"] == "credential.https://github.com.helper"]
+        self.assertEqual(helpers[0], "")                            # anula los demás helpers
+        self.assertEqual(len(helpers), 2)
+        self.assertFalse(any(tok in env[f"GIT_CONFIG_VALUE_{i}"] for i in range(n)))
         self.assertNotIn("ISLA_GH_TOKEN", gitwatch.auth_env(None))
 
 
@@ -174,7 +178,7 @@ class AheadSyncTest(unittest.TestCase):
         w.refresh = lambda fetch=False: None
         seen = []
         orig_run, orig_thread, orig_idle = gitwatch._git_run, gitwatch.threading.Thread, gitwatch.GLib.idle_add
-        gitwatch._git_run = lambda path, *a, timeout=10, token=None: (seen.append((a, token)) or
+        gitwatch._git_run = lambda path, *a, timeout=10, token=None, user=False: (seen.append((a, token, user)) or
                                                                      NS(returncode=0, stdout="", stderr="ok"))
         gitwatch.threading.Thread = lambda target, daemon: NS(start=target)
         gitwatch.GLib.idle_add = lambda fn, *a: fn(*a)
@@ -183,7 +187,7 @@ class AheadSyncTest(unittest.TestCase):
             w.sync({"path": "/r"}, "pull", lambda ok, msg: res.append(ok))
         finally:
             gitwatch._git_run, gitwatch.threading.Thread, gitwatch.GLib.idle_add = orig_run, orig_thread, orig_idle
-        self.assertEqual(seen, [(("pull", "--ff-only"), fake_token("a"))])
+        self.assertEqual(seen, [(("pull", "--ff-only"), fake_token("a"), True)])   # lo pidió el usuario
         self.assertEqual((res, w.syncing), ([True], {}))
 
 

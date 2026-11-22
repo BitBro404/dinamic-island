@@ -51,7 +51,9 @@ def _server_entry(r):
     """Comando recordado de un servidor (o sus contenedores de Docker), o None si no es válido."""
     if isinstance(r, dict) and "docker" in r:
         names = r["docker"]
-        if not (isinstance(names, list) and names and all(isinstance(n, str) and n for n in names)):
+        from .services.servers import DOCKER_NAME          # «--privileged» no es un contenedor
+        if not (isinstance(names, list) and names and all(isinstance(n, str) and DOCKER_NAME.fullmatch(n)
+                                                          for n in names)):
             return None
         port = r.get("port")
         return {"name": r.get("name") if isinstance(r.get("name"), str) else names[0],

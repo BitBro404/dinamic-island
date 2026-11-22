@@ -188,6 +188,56 @@ class LaunchTest(unittest.TestCase):
         self.assertIn("no-existe-xyz", msg)
 
 
+class LaunchSafetyTest(unittest.TestCase):
+    def test_relative_path_entries_are_dropped(self):
+        """S13: «.» o entradas vacías en el PATH guardado harían ejecutar un programa plantado en el proyecto."""
+        self.assertEqual(sv.clean_path(".:/usr/bin::bin:/opt/x/bin:~/bin"), "/usr/bin:/opt/x/bin")
+
+    def test_program_planted_in_the_project_is_not_run(self):
+        with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as logs:
+            planted = os.path.join(cwd, "node")
+            with open(planted, "w") as f:
+                f.write("#!/bin/sh\ntouch pwned\n")
+            os.chmod(planted, 0o755)
+            ok, msg, _ = sv.launch({"name": "x", "port": 1, "cwd": cwd, "argv": ["node", "server.js"],
+                                    "path": ".:" + cwd + "/no-existe"}, logs)
+            self.assertFalse(ok)
+            self.assertIn("node", msg)
+            self.assertFalse(os.path.exists(os.path.join(cwd, "pwned")))
+
+    def test_logs_are_private(self):
+        """S15: la salida de un servidor puede llevar secretos: carpeta 0700 y archivo 0600."""
+        port = free_port()
+        with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as base:
+            logs = os.path.join(base, "servers")
+            ok, msg, pid = sv.launch({"name": "demo", "port": port, "cwd": cwd, "path": os.environ["PATH"],
+                                      "argv": [sys.executable, "-c", "print('hola')"]}, logs)
+            self.assertTrue(ok, msg)
+            time.sleep(0.3)
+            self.assertEqual(os.stat(logs).st_mode & 0o777, 0o700)
+            self.assertEqual(os.stat(sv.log_path({"name": "demo", "port": port}, logs)).st_mode & 0o777, 0o600)
+
+    def test_a_reused_pid_is_not_signalled(self):
+        """S14: si el PID guardado ya es de otro proceso (arrancó a otra hora), no se le manda la señal."""
+        import subprocess
+        p = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(lambda: (p.kill(), p.wait()))
+        real = sv._started(p.pid)
+        sv.terminate({"top": p.pid, "pid": p.pid, "top_started": real - 100, "pid_started": real - 100})
+        time.sleep(0.2)
+        self.assertIsNone(p.poll())                    # sigue vivo
+        sv.terminate({"top": p.pid, "pid": p.pid, "top_started": real, "pid_started": real})
+        self.assertEqual(p.wait(timeout=3), -15)
+
+    def test_launch_spec_records_start_times(self):
+        import subprocess
+        p = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(lambda: (p.kill(), p.wait()))
+        spec = sv.launch_spec(p.pid)
+        self.assertEqual(spec["pid_started"], sv._started(p.pid))
+        self.assertIsNotNone(spec["top_started"])
+
+
 class ServersFlowTest(unittest.TestCase):
     def make(self):
         self.events, self.saved, self.launched = [], [], []

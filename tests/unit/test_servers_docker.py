@@ -102,6 +102,31 @@ class OneEntryPerProjectTest(unittest.TestCase):
                          [(["opengym-api-1", "opengym-web-1"], 8080)])
 
 
+class DockerNameTest(unittest.TestCase):
+    """S16: un nombre de contenedor no puede convertirse en una opción de `docker`."""
+    def test_config_drops_option_like_names(self):
+        from isla_dinamica import config as cfgmod
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w") as f:
+                json.dump({"servers_recent": [{"name": "x", "docker": ["--privileged", "ok-1"]},
+                                              {"name": "y", "docker": ["web_1", "api.2"]}]}, f)
+            with mock.patch.object(cfgmod, "CONFIG_PATH", path):
+                c = cfgmod.Config()
+        self.assertEqual([r["docker"] for r in c.data["servers_recent"]], [["web_1", "api.2"]])
+
+    def test_relaunch_refuses_bad_names_and_ends_options(self):
+        calls = []
+        with mock.patch.object(sv, "run"), mock.patch.object(sv.GLib, "timeout_add_seconds"):
+            s = sv.Servers(lambda: None, lambda k, x: None,
+                           recent=lambda: [{"name": "x", "docker": ["-v"]}, {"name": "y", "docker": ["web"]}])
+        with mock.patch.object(sv, "run", lambda argv, cb=None, **_k: calls.append(argv)):
+            ok, _ = s.relaunch(0)
+            self.assertFalse(ok)
+            s.relaunch(1)
+        self.assertEqual(calls, [["docker", "start", "--", "web"]])
+
+
 class ManualScanTest(unittest.TestCase):
     def test_scan_runs_ss_and_docker_and_reports_how_many_it_found(self):
         calls, got = [], []
@@ -149,7 +174,7 @@ class DockerFlowTest(unittest.TestCase):
         s = self.make()
         with mock.patch.object(sv, "run", self.fake_run()):
             s.docker_stop("docker:opengym")
-        self.assertEqual(self.calls[-1], ["docker", "stop", "opengym-api-1", "opengym-web-1"])
+        self.assertEqual(self.calls[-1], ["docker", "stop", "--", "opengym-api-1", "opengym-web-1"])
         self.assertEqual(self.saved[-1][0]["docker"], ["opengym-api-1", "opengym-web-1"])
         s.apply({}, {k: v for k, v in sv.docker_groups(sv.parse_docker_ps(PS)).items() if k != "docker:opengym"})
         self.assertEqual(self.events, [("stopped", "opengym")])
@@ -158,7 +183,7 @@ class DockerFlowTest(unittest.TestCase):
         s = self.make()
         with mock.patch.object(sv, "run", self.fake_run()):
             s.docker_restart("docker:redis")
-        self.assertEqual(self.calls[-1], ["docker", "restart", "redis"])
+        self.assertEqual(self.calls[-1], ["docker", "restart", "--", "redis"])
         self.assertEqual(self.events, [("restarting", "redis")])
 
     def test_a_project_that_falls_is_remembered(self):
@@ -177,7 +202,7 @@ class DockerFlowTest(unittest.TestCase):
         with mock.patch.object(sv, "run", self.fake_run()):
             ok, _ = s.relaunch(0)
         self.assertTrue(ok)
-        self.assertEqual(self.calls[-1], ["docker", "start", "opengym-api-1", "opengym-web-1"])
+        self.assertEqual(self.calls[-1], ["docker", "start", "--", "opengym-api-1", "opengym-web-1"])
 
     def test_failed_docker_start_is_reported(self):
         s = self.make()
