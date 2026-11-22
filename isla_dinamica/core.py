@@ -5,6 +5,7 @@ import time
 from gi.repository import GLib, Gdk, GdkPixbuf, Gio
 
 from .config import Config, FEATURE_DEFAULTS
+from .platform.session import Session
 from .services.audio import AudioWatch
 from .services.clipboard import Clipboard
 from .services.deploys import Deploys
@@ -41,8 +42,10 @@ from .capture import Capture
 class Core:
     """Estado y servicios compartidos por las islas de todas las pantallas."""
 
-    def __init__(self, app):
+    def __init__(self, app, desktop=None, window_backend="layer-shell"):
         self.app = app
+        self.desktop = desktop                 # platform.desktop.Desktop (familia y sesión)
+        self.window_backend = window_backend   # cómo se colocan las ventanas (ui/placement.py)
         self.windows = {}
         self.ver = {}
         self.media = None
@@ -60,13 +63,14 @@ class Core:
         self.charge_limit = ChargeLimit(sysbus, lambda: self.changed("modes"))
         self.battery = Battery(self.events.battery, self.charge_target)
         self.notif = Notifications(bus, self._on_notify, lambda: self.changed("modes"))
-        self.clip = Clipboard(lambda: self.changed("clip"))
+        self.clip = Clipboard(lambda: self.changed("clip"), desktop=desktop)
         self.bt = Bluetooth(sysbus, lambda: self.changed("bt"), self.events.bt_connect)
         self.wifi = Wifi(sysbus, lambda: self.changed("wifi"))
         self.radios = Radios(lambda: self.changed("modes"))
-        self.modes = Modes(sysbus, bus, lambda: self.changed("modes"))
+        self.session = Session(bus, lambda: self.changed("modes"), desktop=desktop)
+        self.modes = Modes(sysbus, bus, lambda: self.changed("modes"), desktop=desktop, session=self.session)
         self.drives = Drives(lambda: self.changed("usb"), self.events.drive)
-        self.power = Power(sysbus, bus)
+        self.power = Power(sysbus, bus, desktop, session=self.session)
         self.config = Config()
         self.feature("clock24")
         self.weather = Weather(self.config, self._on_weather)
@@ -74,7 +78,7 @@ class Core:
         self.ms_unread = {"teams": 0, "outlook": 0}
         self.git = GitWatch(self.config, lambda: self.changed("git"), self.events.git, lambda: self.feature("git"))
         self.capture = Capture(self)
-        self.recorder = Recorder(lambda: self.changed("rec"), self.capture.recording_done)
+        self.recorder = Recorder(lambda: self.changed("rec"), self.capture.recording_done, desktop=desktop)
         self.reminders = Reminders(lambda: self.changed("reminders"), self.events.reminder)
         self._rm_minute = None
         self.fx = Fx(lambda: self.changed("fx"), self.events.fx_day, lambda: self.feature("fx"))
@@ -82,7 +86,8 @@ class Core:
         self.privacy = Privacy(lambda: self.changed("privacy"), self.events.privacy, lambda: self.feature("privacy"))
         self.presence = Presence(self.config, lambda: self.changed("presence"), lambda: self.changed("presence"),
                                  lambda: self.feature("presence"),
-                                 in_call=lambda: bool(self.feature("audio") and self.audio.call))
+                                 in_call=lambda: bool(self.feature("audio") and self.audio.call),
+                                 desktop=desktop, bus=bus)
         self.downloads = Downloads(lambda: self.changed("downloads"), self.events.download,
                                    lambda: self.feature("downloads"))
         self.netmon = NetMon(lambda: self.changed("netmon"), self.events.net, lambda: self.feature("netmon"))

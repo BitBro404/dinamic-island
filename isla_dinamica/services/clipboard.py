@@ -1,10 +1,14 @@
 """Historial del portapapeles."""
+import os
 import re
 import time
 
 from gi.repository import GLib, Gio
 
-from ..util.proc import run, tied
+from ..platform.chain import Tools, pick
+from ..platform.clipboard import GtkSource, METHODS as CLIP_METHODS, WATCH_ARGV, copy_text
+from ..platform.desktop import detect
+from ..util.proc import tied
 
 
 # Prefijos de claves y tokens conocidos (GitHub, OpenAI/Stripe, AWS, Slack, GitLab, npm, Google…).
@@ -79,19 +83,24 @@ class Clipboard:
     Lo que marca un gestor de contraseñas o parece un secreto no se guarda; lo demás caduca a los 30 min."""
     SEP = "\x1e"
 
-    def __init__(self, on_change):
+    def __init__(self, on_change, tools=None, desktop=None):
         self.on_change = on_change
         self.history = History()
+        self.tools, self.desktop = tools or Tools(), desktop or detect(os.environ)
         GLib.timeout_add_seconds(60, self._prune)
-        script = ("wl-paste -l 2>/dev/null | grep -q x-kde-passwordManagerHint && exit 0; "
-                  "cat; printf '\\036'")
-        try:
-            self.proc = Gio.Subprocess.new(tied(["wl-paste", "-n", "-t", "text", "--watch", "sh", "-c", script]),
-                                           Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
-            self.stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
-            self._read()
-        except GLib.Error:
-            self.proc = None
+        self.method = pick(CLIP_METHODS, self.tools, self.desktop)
+        self.proc = None
+        self.stream = None
+        if self.method and self.method.act[0] == "process":
+            try:
+                self.proc = Gio.Subprocess.new(tied(WATCH_ARGV),
+                                               Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+                self.stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
+                self._read()
+            except GLib.Error:
+                self.proc = None
+        if self.method and self.method.act[0] == "gtk":
+            GtkSource(self._on_text)
 
     def _read(self):
         self.stream.read_upto_async(self.SEP, -1, GLib.PRIORITY_DEFAULT, None, self._on_data)
@@ -102,9 +111,12 @@ class Clipboard:
             stream.read_byte(None)
         except GLib.Error:
             return
+        self._on_text(text)
+        self._read()
+
+    def _on_text(self, text):
         if self.history.add(text):
             self.on_change()
-        self._read()
 
     @property
     def items(self):
@@ -116,7 +128,7 @@ class Clipboard:
         return True
 
     def copy(self, text):
-        run(["wl-copy"], stdin=text)
+        copy_text(text, self.tools, self.desktop)
 
     def remove(self, text):
         if self.history.remove(text):

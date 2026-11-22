@@ -65,8 +65,8 @@ def main():
 
     orig_init = core_mod.Core.__init__
 
-    def init(self, app):
-        orig_init(self, app)
+    def init(self, app, *args, **kw):
+        orig_init(self, app, *args, **kw)
         if setup:
             setup(self)
         w = next(iter(self.windows.values()))

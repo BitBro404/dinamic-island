@@ -5,7 +5,6 @@ from gi.repository import Gtk
 
 from ..ui.gtk import button, clear, label, set_accent
 from ..ui.widgets.charts import Spark
-from ..util.proc import launch_desktop
 from .base import Page
 from .registry import feature, page, tool
 
@@ -54,10 +53,10 @@ class SystemPage(Page):
         return box
 
     def _open_monitor(self):
-        for app in ("gnome-system-monitor", "org.gnome.SystemMonitor", "mate-system-monitor", "plasma-systemmonitor"):
-            if launch_desktop(app):
-                return
-        subprocess.Popen(["x-terminal-emulator", "-e", "top"], stderr=subprocess.DEVNULL)
+        from ..platform.apps import monitor_command
+        from ..platform.chain import Tools
+
+        subprocess.Popen(monitor_command(Tools(), self.core.desktop), stderr=subprocess.DEVNULL)
 
     def _fill_system(self):
         m = self.core.sysmon

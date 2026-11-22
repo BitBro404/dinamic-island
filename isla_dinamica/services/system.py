@@ -1,53 +1,46 @@
 """Modos del sistema y medios extraíbles."""
-import os
-import re
-
 from gi.repository import GLib, Gio
 
+from ..platform.appearance import Appearance
+from ..platform.session import Session
 from ..util.proc import open_uri
 
 
 class Modes:
     """Modo oscuro, luz nocturna, ahorro de energía y mantener despierto."""
 
-    def __init__(self, sysbus, bus, on_change):
+    def __init__(self, sysbus, bus, on_change, desktop=None, appearance=None, session=None):
         self.on_change, self.sysbus, self.bus = on_change, sysbus, bus
-        src = Gio.SettingsSchemaSource.get_default()
-        self.iface = Gio.Settings.new("org.gnome.desktop.interface")
-        self.iface.connect("changed::color-scheme", lambda *_: on_change())
-        self.color = None
-        if src.lookup("org.gnome.settings-daemon.plugins.color", True):
-            self.color = Gio.Settings.new("org.gnome.settings-daemon.plugins.color")
-            self.color.connect("changed::night-light-enabled", lambda *_: on_change())
+        self.appearance = appearance or Appearance(on_change, desktop=desktop, bus=bus)
+        self.session = session
         try:
             self.pp = Gio.DBusProxy.new_sync(sysbus, Gio.DBusProxyFlags.NONE, None, "net.hadess.PowerProfiles",
                                              "/net/hadess/PowerProfiles", "net.hadess.PowerProfiles", None)
             self.pp.connect("g-properties-changed", lambda *_: on_change())
         except GLib.Error:
             self.pp = None
-        self.inhibit_cookie = None
 
     @property
     def dark(self):
-        return self.iface.get_string("color-scheme") == "prefer-dark"
+        return self.appearance.dark
+
+    @property
+    def dark_available(self):
+        return self.appearance.has_dark and not (self.appearance._dark and self.appearance._dark.readonly)
 
     def toggle_dark(self):
-        dark = not self.dark
-        self.iface.set_string("color-scheme", "prefer-dark" if dark else "default")
-        theme = self.iface.get_string("gtk-theme")
-        base = re.sub(r"-(dark|darkest|light)$", "", theme)
-        cand = base + "-dark" if dark else base
-        dirs = ["/usr/share/themes", os.path.expanduser("~/.themes"), os.path.expanduser("~/.local/share/themes")]
-        if cand != theme and any(os.path.isdir(os.path.join(d, cand)) for d in dirs):
-            self.iface.set_string("gtk-theme", cand)
+        return self.appearance.toggle_dark()
 
     @property
     def night(self):
-        return bool(self.color and self.color.get_boolean("night-light-enabled"))
+        return self.appearance.night
+
+    @property
+    def night_available(self):
+        return self.appearance.has_night
 
     def toggle_night(self):
-        if self.color:
-            self.color.set_boolean("night-light-enabled", not self.night)
+        return self.appearance.toggle_night()
 
     @property
     def profile(self):
@@ -64,27 +57,15 @@ class Modes:
                          None, 0, 2000, None, lambda *_: self.on_change())
 
     @property
+    def awake_available(self):
+        return bool(self.session and self.session.supported)
+
+    @property
     def awake(self):
-        return self.inhibit_cookie is not None
+        return bool(self.session and self.session.awake)
 
     def toggle_awake(self):
-        if self.inhibit_cookie is not None:
-            try:
-                self.bus.call_sync("org.gnome.SessionManager", "/org/gnome/SessionManager",
-                                   "org.gnome.SessionManager", "Uninhibit",
-                                   GLib.Variant("(u)", (self.inhibit_cookie,)), None, 0, 1000, None)
-            except GLib.Error:
-                pass
-            self.inhibit_cookie = None
-        else:
-            try:
-                self.inhibit_cookie = self.bus.call_sync(
-                    "org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager", "Inhibit",
-                    GLib.Variant("(susu)", ("isla-dinamica", 0, "Mantener despierto", 4 | 8)),
-                    GLib.VariantType("(u)"), 0, 1000, None).unpack()[0]
-            except GLib.Error:
-                self.inhibit_cookie = None
-        self.on_change()
+        return bool(self.session and self.session.set_awake(not self.awake))
 
 
 class Drives:

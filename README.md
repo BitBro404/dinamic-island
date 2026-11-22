@@ -1,15 +1,18 @@
 # Isla dinámica
 
-Una píldora tipo «Dynamic Island» arriba al centro de la pantalla para escritorios Linux con Wayland.
-Muestra la música, las llamadas, el temporizador, las descargas, los despliegues y los avisos.
-Al pasar el ratón por encima se expande en un panel con ajustes rápidos y páginas: Wi‑Fi, Bluetooth,
-GitHub, Teams y correo, clima, sistema, presencia y más.
+Una píldora tipo «Dynamic Island» arriba al centro de la pantalla para **cualquier escritorio Linux**
+(Wayland o X11). Muestra la música, las llamadas, el temporizador, las descargas, los despliegues y los
+avisos. Al pasar el ratón por encima se expande en un panel con ajustes rápidos y páginas: Wi‑Fi,
+Bluetooth, GitHub, Teams y correo, clima, sistema, presencia y más.
 
-Está hecha en Python 3 + GTK3 (PyGObject) con `gtk-layer-shell`, y probada en **Ubuntu 26.10 con Budgie
-sobre Wayland (labwc)**.
+Está hecha en Python 3 + GTK3 (PyGObject). Usa `gtk-layer-shell` cuando el compositor lo admite y,
+si no, coloca una ventana X11 con el mismo aspecto; en GNOME puede apoyarse en una extensión
+provisional. Las funciones que dependen del escritorio eligen entre varios métodos disponibles: si
+ninguno funciona, se ocultan o se marca «No disponible», y `isla-dinamica --doctor` lo explica.
 
-📖 La documentación de todas las funciones, ordenadas por las dependencias que necesitan, está en
-**[docs/DOCUMENTACION.md](docs/DOCUMENTACION.md)**.
+📖 Documentación:
+**[docs/DOCUMENTACION.md](docs/DOCUMENTACION.md)** (funciones por nivel de dependencias) y
+**[docs/ESCRITORIOS.md](docs/ESCRITORIOS.md)** (qué probar en cada escritorio).
 
 ---
 
@@ -17,41 +20,42 @@ sobre Wayland (labwc)**.
 
 ### Base (obligatorio)
 
-```bash
-sudo apt install python3 python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 gir1.2-gdkpixbuf-2.0
-```
+- Python 3, GTK3 y PyGObject (`python3-gi`, `gir1.2-gtk-3.0`, `gir1.2-gdkpixbuf-2.0`).
+- D-Bus de sesión; para batería, bloqueo y energía también el de sistema.
+- **Wayland** con `wlr-layer-shell` da la ventana nativa. Sin él, la isla relanza una sola vez con
+  `GDK_BACKEND=x11` y usa una ventana X11 (funciona en GNOME, Cinnamon, sesiones X11 y XWayland).
+- En GNOME Wayland se puede instalar la extensión provisional para colocar la ventana desde el shell.
 
-- Necesitas una sesión **Wayland** con un compositor que soporte `wlr-layer-shell`, como labwc, sway o
-  Hyprland.
-- Las notificaciones (página Avisos, Teams y correo, «No molestar») se leen del servidor de
-  notificaciones de **Budgie** (`org.budgie_desktop.Notifications`). En otro escritorio esas funciones
-  quedan vacías.
+`./install.sh --deps` detecta tu distro (apt, dnf, pacman o zypper), muestra los paquetes y la orden, y
+solo ejecuta `sudo` si confirmas. Paquetes base por familia:
+
+| Familia | Paquetes |
+|---|---|
+| Debian/Ubuntu y derivadas (apt) | `python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 gir1.2-gdkpixbuf-2.0` |
+| Fedora/RHEL (dnf) | `python3-gobject gtk3 gtk-layer-shell` |
+| Arch/Manjaro (pacman) | `python-gobject gtk3 gtk-layer-shell` |
+| openSUSE (zypper) | `python3-gobject-Gdk gtk3 typelib-1_0-GtkLayerShell-0_1` |
 
 ### Por función (opcionales)
 
-Si falta una herramienta, la isla sigue funcionando y la página correspondiente te dice qué instalar.
+Si falta una herramienta, la isla sigue funcionando; la función se oculta o muestra qué instalar.
 
-| Función | Paquetes / herramientas | Instalar |
-|---|---|---|
-| Volumen, audio en vivo, llamadas | PipeWire + `pactl`, `wpctl`, `parec`, `pw-play` | `sudo apt install pipewire-pulse wireplumber pulseaudio-utils pipewire-bin` |
-| Wi‑Fi, red, VPN, modo avión | NetworkManager (`nmcli`), `rfkill`, `ip`, `ss` | `sudo apt install network-manager rfkill iproute2` |
-| Bluetooth | BlueZ | `sudo apt install bluez` |
-| Copias (portapapeles) | `wl-copy`, `wl-paste` | `sudo apt install wl-clipboard` |
-| Recorte y captura de pantalla | `grim`, `slurp` | `sudo apt install grim slurp` |
-| Grabar pantalla | `wf-recorder` | `sudo apt install wf-recorder` |
-| GitHub y despliegues | `gh` con sesión iniciada | `sudo apt install gh` y luego `gh auth login` |
-| Proyectos (git) | `git` | `sudo apt install git` |
-| Presencia (cámara) | OpenCV, `swayidle`, `wlopm` | `sudo apt install python3-opencv opencv-data swayidle wlopm` |
-| Cuidar batería, ahorro de energía | UPower y power-profiles-daemon (vienen con Ubuntu) | — |
-| Abrir ajustes del sistema | `budgie-control-center` | viene con Budgie |
-
-Todo junto:
-
-```bash
-sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 gir1.2-gdkpixbuf-2.0 \
-  pipewire-pulse wireplumber pulseaudio-utils pipewire-bin network-manager rfkill iproute2 bluez \
-  wl-clipboard grim slurp wf-recorder gh git python3-opencv opencv-data swayidle wlopm
-```
+| Función | Métodos que prueba, en orden |
+|---|---|
+| Avisos y No molestar | Monitor genérico de `org.freedesktop.Notifications` + el daemon del escritorio (Budgie, GNOME, KDE, XFCE, mako, SwayNC, dunst…). Centro de avisos nativo o de la extensión; si no hay, se oculta |
+| Volumen y sonidos | `wpctl` → `pactl`; `pw-play` → `paplay` → `canberra-gtk-play` |
+| Wi‑Fi, red, VPN, modo avión | NetworkManager (`nmcli`), `rfkill`, `ip`, `ss` |
+| Bluetooth | BlueZ |
+| Copias (portapapeles) | `wl-paste --watch` en wlroots; `Gtk.Clipboard` en X11/XWayland. Mismo filtro de secretos |
+| Capturas | `grim`+`slurp`, `spectacle`, extensión GNOME, `maim`, `scrot` o portal |
+| Grabar pantalla | `wf-recorder`, `ffmpeg` x11grab, extensión GNOME o portal |
+| Bloqueo, pantalla e inactividad | Método nativo del escritorio → `loginctl`/`xset`/XScreenSaver → sondeo; verifica que el bloqueo funcionó antes de apagar la pantalla |
+| Modo oscuro y luz nocturna | gsettings del escritorio, `gammastep`/`redshift` o portal; la casilla se oculta si no hay método |
+| Cerrar sesión y «despierto» | SessionManager del escritorio → `xfce4-session-logout` → `loginctl`; `systemd-inhibit` como último recurso |
+| Ajustes rápidos y monitor | Centro de ajustes del escritorio; `top` en terminal como último recurso |
+| GitHub y despliegues | `gh` con sesión iniciada (`gh auth login`) |
+| Proyectos (git) | `git` |
+| Presencia (cámara) | OpenCV + detección de inactividad (`swayidle`, XScreenSaver, reloj del bus…) y `wlopm`/`xset` |
 
 ### Servicios en línea (sin claves ni cuentas)
 
@@ -68,25 +72,36 @@ sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 gir1.2-gdkpi
 ```bash
 git clone <este-repo> "dinamic island"
 cd "dinamic island"
+./install.sh --deps     # opcional: instala las dependencias de tu distro (pregunta antes)
 ./install.sh
 ```
 
-`install.sh` hace lo siguiente:
+| Orden | Qué hace |
+|---|---|
+| `./install.sh` | Copia `isla_dinamica/` a `~/.local/share/isla-dinamica/`, escribe el lanzador y el autoarranque, y reinicia la isla |
+| `./install.sh --deps` | Muestra los paquetes según distro/escritorio y pregunta antes de ejecutar la orden con `sudo` |
+| `./install.sh --gnome-extension` | Copia y activa la extensión provisional de GNOME (pregunta antes) |
+| `./install.sh --no-restart` | Actualiza los archivos sin reiniciar la isla en marcha |
+| `./install.sh --help` | Ayuda |
 
-1. Copia el paquete `isla_dinamica/` a `~/.local/share/isla-dinamica/`.
-2. Crea el lanzador `~/.local/bin/isla-dinamica`.
-3. Cierra la isla que esté corriendo y arranca la nueva.
+El lanzador es `~/.local/bin/isla-dinamica` y el autoarranque,
+`~/.config/autostart/isla-dinamica.desktop`, con la ruta real de tu usuario (no hay que editar nada).
+En sway, Hyprland, river, labwc y otros compositores sin autoarranque estándar, el instalador muestra la
+línea `exec` que debes añadir a tu configuración; **no la edita por ti**.
 
-Vuelve a ejecutarlo cada vez que cambies el código.
+Vuelve a ejecutar `./install.sh` cada vez que cambies el código.
 
-### Arrancar al iniciar sesión
+### Diagnóstico
 
 ```bash
-cp isla-dinamica.desktop ~/.config/autostart/
+isla-dinamica --doctor
 ```
 
-Edita la línea `Exec=` si tu usuario no es `luis`: debe apuntar a `~/.local/bin/isla-dinamica` con la ruta
-completa.
+Muestra el escritorio y el tipo de sesión detectados, el backend de la ventana y el método elegido para
+cada función (avisos, DND, centro, bloqueo, pantalla, inactividad, portapapeles, captura, grabación,
+oscuro, luz nocturna, cerrar sesión, despierto, volumen y sonidos). «No disponible» significa que no hay
+ningún método; en ese caso la casilla o la página se oculta. Es la primera cosa que hay que mirar antes de
+abrir un issue.
 
 ### Ejecutar sin instalar (desarrollo)
 
@@ -98,6 +113,7 @@ python3 isla.py
 |---|---|
 | `ISLA_DEBUG=1` | Muestra en la terminal lo que detecta: avisos, consultas, errores |
 | `ISLA_NO_WELCOME=1` | No muestra el saludo al arrancar |
+| `GDK_BACKEND=x11` | Fuerza X11/XWayland (el instalador lo hace automáticamente cuando no hay layer-shell) |
 
 ### Detener
 
@@ -184,16 +200,21 @@ borra el archivo y reinicia la isla.
 
 ```
 isla.py                   lanzador para desarrollo
-install.sh                instala en ~/.local y reinicia
+install.sh                instala en ~/.local y reinicia (--deps, --gnome-extension, --help)
+tools/                    generadores puros de dependencias, autoarranque y lanzador
+extras/gnome-shell/       extensión provisional (D-Bus) para GNOME
+docs/                     DOCUMENTACION.md y ESCRITORIOS.md
 isla_dinamica/
   __init__.py             versiones de GTK/Gdk/LayerShell (gi.require_version), una sola vez
-  main.py                 arranque
+  main.py                 arranque y --doctor
+  platform/               ÚNICO sitio con nombres de escritorio: detección, cadenas de métodos y puente D-Bus
   config.py               preferencias (config.json): valores por defecto, validación, guardado 0600
   core.py                 estado central: crea los servicios y guarda el estado
   events.py               EventRouter: evento de un servicio → aviso de la píldora
-  capture.py              capturas (grim/slurp) y grabación de pantalla
+  capture.py              fachada de capturas; delega en platform/capture.py
   window.py               ventana: une los mixins de ui/ con las páginas
   ui/
+    placement.py          implementación de las formas de colocar la ventana (sin elegir por escritorio)
     style.py              tamaños de la píldora y hoja CSS
     gtk.py                fábricas de widgets (label, icon, button…)
     pill.py               PILL_ORDER y pick_pill: qué muestra la píldora (función pura)
@@ -211,29 +232,39 @@ isla_dinamica/
   services/               lógica sin interfaz (un servicio por archivo; poller.py = temporizadores comunes)
   pages/                  páginas del panel: una clase Page por archivo, listadas en pages/__init__.py
 tests/
-  unit/                   pruebas unitarias (unittest)
+  unit/                   pruebas unitarias (unittest; incluye la regla de arquitectura)
   harness.py              arnés de capturas de pantalla
+  docker/                 Xvfb + Openbox para probar la ventana X11
+  x11_smoke.sh            comprobación X11 automatizada
   fixtures/               datos falsos para el arnés
 ```
 
 Las dependencias van en un solo sentido: `util` y `config` no importan nada del resto del proyecto;
-`services` solo usa `util`/`config`; `ui` usa `util` y lee el estado de algunos servicios; `pages` usa `ui`,
-`util` y `services`; `window` y `core` lo unen todo. Ningún servicio importa nada de `ui` ni de `pages`. No hay
-`import *`: cada archivo dice de dónde sale cada nombre.
+`platform` conoce los escritorios y no importa `ui`, `pages` ni `services`; `services` usa `util`/`config`/
+`platform`; `ui` usa `util`, `platform.placement` y lee el estado de algunos servicios; `pages` usa `ui`,
+`util` y `services`; `window` y `core` lo unen todo. Ningún servicio importa nada de `ui` ni de `pages`.
+Los nombres de escritorio solo aparecen en `platform/` (lo comprueba `tests/unit/test_architecture.py`).
+No hay `import *`: cada archivo dice de dónde sale cada nombre.
 
 ### Pruebas
 
-Pruebas unitarias (usan solo la biblioteca estándar, sin pytest):
+Con `make check` (o, si no tienes `make`, con los dos comandos siguientes) se comprueba que todo compila
+y se ejecutan las pruebas unitarias, incluidas las de detección, cada cadena de métodos y la regla de
+arquitectura:
 
 ```bash
+python3 -m compileall -q isla_dinamica tools
 python3 -W error::ResourceWarning -m unittest discover -s tests/unit
 ```
 
-Comprobar que todo compila:
+La ventana X11 se comprueba aparte, sin depender del escritorio anfitrión:
 
 ```bash
-python3 -m compileall -q isla_dinamica
+bash tests/x11_smoke.sh     # Xvfb + Openbox en Docker; requiere Docker
 ```
+
+GNOME, KDE, Cinnamon y el resto se validan en una VM siguiendo
+**[docs/ESCRITORIOS.md](docs/ESCRITORIOS.md)**.
 
 Capturas de páginas con datos falsos:
 
@@ -261,9 +292,11 @@ burbujas).
 
 | Síntoma | Solución |
 |---|---|
-| La isla no aparece | Comprueba que estás en Wayland (`echo $XDG_SESSION_TYPE`) y que tienes `gir1.2-gtklayershell-0.1`. Ejecuta `ISLA_DEBUG=1 python3 isla.py` para ver los errores. |
+| La isla no aparece | Ejecuta `isla-dinamica --doctor`: dice el escritorio detectado y el backend elegido. Faltan paquetes base o hay un error de arranque; prueba `ISLA_DEBUG=1 python3 isla.py`. |
 | GitHub pide iniciar sesión | `gh auth login` y luego pulsa Actualizar. |
 | No llegan los mensajes de Teams o del correo | Deja Teams y Outlook web abiertos en Chrome con las notificaciones permitidas, y desactiva «No molestar». |
 | Presencia dice «Sin OpenCV» | `sudo apt install python3-opencv opencv-data` |
 | Presencia nunca cuenta | Hay música o vídeo reproduciéndose (inhibe la inactividad), o estás fuera del horario o en pausa. |
-| Grabar pantalla no funciona | `sudo apt install wf-recorder` |
+| Grabar pantalla no funciona | `sudo apt install wf-recorder` (wlroots) o `ffmpeg` (X11). `--doctor` dice qué método se eligió; el portal es el último recurso |
+| Una función no sale en el panel | No hay método en este escritorio. Mira `isla-dinamica --doctor` e instala la herramienta que indica; las casillas sin método se ocultan |
+| En GNOME la ventana queda detrás de las maximizadas | Instala la extensión provisional con `./install.sh --gnome-extension` y reinicia la sesión |

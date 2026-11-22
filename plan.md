@@ -1,271 +1,315 @@
-# Plan: refactor SOLID + comentarios + plan de seguridad
+# Plan: isla dinámica universal (cualquier escritorio y distro Linux)
 
-> Estado: **APROBADO** (2026-11-21, orden: seguridad → refactor). Fase S hecha; refactor pendiente.
-> El plan anterior (sensor de presencia, ya terminado) se archivó en `.ai/plans/2026-11-21-sensor-presencia.md`.
+Estado: **TERMINADO** (fases U0–U8 ejecutadas con TDD el 2026-11-21; queda la validación del usuario en VM).
+Plan anterior archivado en `.ai/plans/2026-11-21-seguridad-refactor.md`.
 
 ## Objetivo y resultado esperado
-1. **Refactor:** dejar el código más fácil de leer y mantener **sin cambiar lo que hace la isla**. Para eso:
-   - separar responsabilidades (SOLID);
-   - quitar redundancia y el código muerto;
-   - cambiar las importaciones `*` por importaciones explícitas;
-   - comentar los módulos y las piezas clave en español.
-2. **Seguridad:** identificar los riesgos y corregirlos uno a uno con TDD (sección «Riesgos de seguridad»).
-
-Resultado: la misma isla (comprobada con las 54 pruebas actuales y capturas antes/después), con una
-estructura en capas fácil de recorrer y los riesgos de seguridad cerrados o documentados.
+Que la isla funcione en KDE Plasma, GNOME, Cinnamon, MATE, XFCE, LXDE, LXQt, Budgie, sway, Hyprland, Wayfire,
+river, labwc y cualquier otro escritorio, en Wayland o X11, y en las familias de distros Debian/Ubuntu,
+Fedora, Arch y openSUSE.
+- **Lo básico funciona en todas partes:** píldora, panel, reloj, música (MPRIS), batería, avisos, Wi-Fi,
+  Bluetooth, temporizador, pomodoro, clima, GitHub y el resto de páginas que no dependen del escritorio.
+- **Lo que depende del escritorio** (bloqueo, apagar pantalla, inactividad, portapapeles, capturas, grabación,
+  modo oscuro, luz nocturna, No molestar, ajustes) usa el mejor método disponible en cada escritorio.
+- **Si no hay ningún método,** la función se oculta o muestra «No disponible en este escritorio».
+- **`isla-dinamica --doctor`** dice qué escritorio detectó, qué método usa cada función y qué paquete falta.
 
 ## Alcance
-- Repositorios incluidos: `/home/luis/dinamic island` (un único repo; rama `main`, limpia y al día con `origin`).
-- Repositorios excluidos: ninguno más.
-- Fuera de alcance: funciones nuevas, cambios visuales, migrar a GTK4 y cambiar de librería de pruebas.
+- Repositorio: solo `dinamic island` (un repo).
+- Incluido: paquete `isla_dinamica/platform/`, ventana X11, servicios con varios métodos, `install.sh --deps`,
+  autoarranque por escritorio, extensión provisional de GNOME Shell, README y documentación.
+- Excluido: escritorios que no sean Linux (BSD, macOS), Flatpak o Snap, y traducciones.
 
 ## Contexto actual (medido el 2026-11-21)
-- Unas 7 500 líneas en `isla_dinamica/` y 54 pruebas unitarias en verde.
-- Comando de pruebas: `python3 -W error::ResourceWarning -m unittest discover -s tests/unit`.
-- Arnés de capturas: `tests/harness.py` con datos falsos en `tests/fixtures/`.
-- Puntos calientes:
+Puntos atados a Budgie/labwc:
 
-| Archivo | Líneas | Problema |
+| Función | Hoy | Problema fuera de Budgie/wlroots |
 |---|---|---|
-| `window.py` | 1165 | «Clase Dios»: `IslandWindow(*PAGE_CLASSES, Gtk.Window)` hereda de **todas** las páginas (viola SRP e ISP). Mezcla dibujo Cairo, animación, hover, arrastre y acople, burbujas y la cadena de prioridad de la píldora: `refresh()` es un `if/elif` de 15 ramas (viola OCP: cada función nueva obliga a editarla) |
-| `core.py` | 534 | Crea todos los servicios **y** traduce más de 20 eventos (`_on_battery`, `_on_deploy`, `_on_github`…) a avisos de la UI (SRP). Captura de pantalla y grabación también viven aquí |
-| `common.py` | 426 | Mezcla CSS (70 líneas), constantes de layout, fabricación de widgets, formato de fechas, procesos, configuración y HTTP |
-| `widgets.py` | 540 | Los títulos de sección engañan («servicios», «la isla» encima de widgets que no lo son) |
-| `isla_v1.py` | 875 | **Código muerto**: versión previa a la modularización; nada lo importa (sigue en el historial de git) |
+| Ventana | GtkLayerShell (`window.py`, `ui/dock.py`) | GNOME, Cinnamon, Weston y toda sesión X11 no tienen layer-shell |
+| Avisos | Dispatcher de Budgie por D-Bus (`services/notifications.py`) | En otros escritorios no llega ningún aviso |
+| No molestar y centro de avisos | Budgie y Raven | No existen fuera de Budgie |
+| Bloqueo (presencia) | BudgieScreenlock → `loginctl` | Bien en general; falta swaylock en sway y similares |
+| Apagar pantalla | `wlopm` | Solo wlroots |
+| Inactividad | `swayidle` (ext-idle-notify) | No funciona en GNOME ni en X11 |
+| Portapapeles | `wl-paste --watch` / `wl-copy` | No funciona en GNOME (no tiene data-control) ni en X11 |
+| Capturas | `grim` + `slurp` | Solo wlroots |
+| Grabación | `wf-recorder` | Solo wlroots |
+| Modo oscuro y luz nocturna | gsettings de GNOME | Sin efecto en KDE, XFCE, LXQt, Cinnamon (claves propias) |
+| Cerrar sesión y mantener despierto | `org.gnome.SessionManager` | No existe en KDE, XFCE, LXQt ni sway |
+| Ajustes | `budgie-control-center` | Solo Budgie |
+| Volumen y sonidos | `wpctl`, `pw-play` | Solo PipeWire (no PulseAudio puro) |
+| Autoarranque | `.desktop` con `/home/luis` fijo | Ruta de un usuario; sway y Hyprland no leen `~/.config/autostart` |
 
-- Redundancias detectadas:
-  - el bucle «reproducir el primer sonido que exista» está copiado en `core.py:411` y `core.py:484`, además de `common.play_sound`;
-  - el patrón «sondear cada N s con `_schedule`/`_tick`» se repite en varios servicios (16 temporizadores);
-  - el patrón «refrescar al abrir la página si los datos tienen más de N s» se repite en varias páginas;
-  - hay 79 `from ..x import *` que ocultan de dónde sale cada nombre.
-- Bloqueos del hilo de la UI: `media.py:83` llama a `subprocess.run(wpctl get-volume)` en el hilo principal
-  (los de `audio.py` y `privacy.py` sí corren en hilos).
+Ya son universales: MPRIS, UPower, logind, BlueZ, NetworkManager (`nmcli`), rfkill, GVolumeMonitor (USB),
+power-profiles-daemon (también `tuned-ppd` de Fedora), `parec`/`pactl` (PipeWire-Pulse o PulseAudio) y `gh`/`git`.
 
-## Decisiones confirmadas
-- Comentarios y docstrings en **español**, como el resto del proyecto.
-- Pruebas con `unittest` de la biblioteca estándar (sin pytest).
-- No hay commit ni push sin autorización explícita. El hook de evanflow bloquea `git push`, así que el push lo hace el usuario.
+En esta máquina hay Budgie Wayland con XWayland, `labwc`, `swayidle`, `wlopm`, `grim`, `slurp`, `wf-recorder`,
+`ffmpeg`, `xdotool`, `xset` y Docker. No hay GNOME, KDE, Cinnamon, sway ni Xvfb.
+
+## Decisiones confirmadas (2026-11-21)
+- D1. **Soporte para todos.** Si un escritorio necesita una pieza nativa propia (extensión), se crea como
+  versión provisional.
+- D2. **Funciones sin método:** se ocultan o se marcan «No disponible», y se añade el comando `--doctor`.
+- D3. **Dependencias:** `install.sh --deps` detecta apt/dnf/pacman/zypper, muestra el comando y lo ejecuta con
+  sudo solo si el usuario confirma.
+- D4. **Pruebas:** pruebas unitarias de detección y de cada método; la ventana X11 se prueba aquí (XWayland) y
+  en Docker con Xvfb y Openbox. GNOME, KDE y el resto los prueba el usuario en una VM u otro equipo, con una
+  lista de comprobación por escritorio.
 
 ## Decisiones propuestas (se aprueban con el plan)
-- D1. Borrar `isla_v1.py`; queda en el historial de git (`3872417`).
-- D2. Refactor **por fases pequeñas**. Cada fase deja todo en verde y se puede validar y hacer commit por separado.
-- D3. Las correcciones de seguridad van **después** del refactor (fase S), cada una con su prueba RED. Si
-  prefieres, S1 y S2 pueden ir primero porque son las de mayor impacto.
-- D4. No se cambia el aspecto visual. Las capturas antes/después del arnés deben coincidir.
+- P1. **Si no hay layer-shell, X11.** Si la sesión es Wayland y el compositor no tiene layer-shell (GNOME,
+  Cinnamon Wayland, Weston, otros), la isla se relanza sola con `GDK_BACKEND=x11` y corre en XWayland como
+  ventana X11. En una sesión X11 es ventana X11 desde el principio.
+- P2. **Ventana X11:** sin bordes, siempre encima, en todos los escritorios virtuales, fuera de la barra de
+  tareas y de Alt+Tab (tipo `DOCK`), y colocada con `move()`.
+  - Sin compositor (LXDE/Openbox puro), las esquinas redondeadas se recortan con una máscara de forma
+    (`shape_combine_region`), así no se ve un rectángulo negro.
+- P3. **Extensión de GNOME Shell (provisional):** `extras/gnome-shell/isla-dinamica@bitbro404.github.io/`
+  (GNOME 45+).
+  - Busca la ventana de la isla por `wm_class` y la deja encima de todo, en todos los espacios, sin
+    Alt+Tab ni vista general, y sin animaciones.
+  - Expone por D-Bus `GetIdletime` (el que Mutter ya tiene) y `Screenshot` y `Screencast`, para lo que GNOME
+    solo permite a la Shell.
+  - Con la extensión activa, la isla corre como Wayland nativo en GNOME; sin ella, en XWayland (P1).
+- P4. **Cada función con varios métodos es una cadena:** el primer método disponible gana (inversión de
+  dependencias: los servicios piden «bloquear», no «Budgie»). Cada método declara `available()` con
+  `which`/bus inyectables para probarlo sin el escritorio real.
+- P5. **La seguridad se mantiene:** bloqueo verificado antes de apagar la pantalla (S2), contraseñas por stdin
+  (S1) y URLs seguras (S3). Los métodos nuevos pasan las mismas pruebas.
 
 ## Suposiciones y restricciones
-- Sin pruebas de UI automáticas: lo visual se verifica con el arnés y una revisión manual de las capturas.
-- Mover código entre módulos sin cambiar la lógica se cubre con: las pruebas existentes, nuevas pruebas de
-  caracterización donde la lógica sea pura (prioridad de la píldora, burbujas) y `compileall`.
-- El arnés reinicia la isla instalada. No se ejecuta `./install.sh` hasta el final, con aprobación.
+- systemd-logind presente (todas las distros principales). Sin él, bloqueo y energía usan solo los métodos del
+  escritorio.
+- GTK3 + PyGObject: los paquetes existen en las cuatro familias de distros.
+- **Eavesdropping de D-Bus:** los avisos genéricos se leen con `BecomeMonitor` en el bus de sesión (permitido
+  al mismo usuario en dbus-daemon y dbus-broker). Si una distro lo prohíbe, `--doctor` lo dice.
+- No se puede probar de verdad GNOME, KDE, Cinnamon, XFCE, LXQt ni sway en esta máquina (ver D4).
 
-## Arquitectura objetivo (SOLID, en una imagen)
-
+## Arquitectura objetivo
 ```
-isla_dinamica/
-  main.py                 arranque: crea App y Core
-  config.py               Config + DEFAULTS + validadores           (antes en common.py)
-  core.py                 Core: crea servicios y guarda el estado; ya no formatea avisos
-  events.py               EventRouter: traduce los eventos de los servicios en avisos de la píldora (SRP)
-  util/
-    fmt.py                hm, ago, ago_long, fmt_secs, fecha, today_count, iso_ts  (funciones puras)
-    proc.py               run, tied, open_uri, launch_desktop, play_sound
-    net.py                fetch_json
-  ui/
-    style.py              CSS, ACCENTS y constantes de tamaño
-    gtk.py                label, icon, button, clear, set_accent, set_class
-    widgets/              Art, Spectrum, Equalizer, WeatherIcon, PrivacyDots, Spark, TempBar, Tile
-    pill.py               PillChain: lista ordenada de «proveedores de píldora» (OCP)
-    bubbles.py            cálculo de las burbujas (lógica pura y testeable)
-    dock.py               arrastre y acople a los bordes
-    window.py             IslandWindow: compone lo anterior, sin heredar de las páginas
-  pages/                  una clase por página que recibe (core, window): composición en vez de herencia
-  services/               sin cambios de API; base común Poller para los que sondean (DRY)
+isla_dinamica/platform/            ← nuevo: lo único que sabe en qué escritorio estamos
+  desktop.py    Desktop(family, session, layer_shell) y detect(env) — función pura
+  chain.py      Backend (available/name) + first_available(chain) + Tools(which, bus) inyectables
+  lock.py       Budgie → org.freedesktop.ScreenSaver → org.gnome/cinnamon/mate.ScreenSaver →
+                loginctl lock-session → swaylock -f → xdg-screensaver lock
+  screen.py     apagar/encender: wlopm → swaymsg/hyprctl → kscreen-doctor → Mutter (extensión) → xset dpms
+  idle.py       swayidle (ext-idle) → org.freedesktop.ScreenSaver.GetSessionIdleTime (KDE) →
+                Mutter IdleMonitor (GNOME) → XScreenSaver (X11, por ctypes sin dependencias)
+  clipboard.py  wl-paste --watch (wlroots/KDE) → Gtk.Clipboard owner-change (X11/XWayland)
+  capture.py    grim+slurp → spectacle → extensión GNOME/portal → maim/scrot → xdg-desktop-portal Screenshot
+  record.py     wf-recorder → gpu-screen-recorder → ffmpeg x11grab (X11) → extensión GNOME (Screencast)
+  dnd.py        Budgie → GNOME gsettings → KDE Notifications.Inhibit → Cinnamon/MATE gsettings →
+                xfconf → makoctl / swaync-client / dunstctl
+  appearance.py oscuro: gsettings GNOME/Budgie, Cinnamon, MATE, xfconf, plasma-apply-colorscheme;
+                lectura universal por el portal org.freedesktop.appearance.
+                Luz nocturna: GNOME, Cinnamon, KDE (org.kde.KWin.NightLight).
+  session.py    cerrar sesión (GNOME/Cinnamon/MATE SessionManager, KDE ksmserver, xfce4-session-logout,
+                lxqt-leave, swaymsg exit, hyprctl dispatch exit, labwc --exit) y mantener despierto
+                (SessionManager → ScreenSaver.Inhibit → systemd-inhibit)
+  apps.py       ajustes por escritorio (panel wifi/bluetooth/energía) y monitor del sistema
+  audio.py      volumen wpctl → pactl; sonido pw-play → paplay → canberra-gtk-play
+  doctor.py     informe de texto: escritorio, método elegido por función, qué instalar
+ui/placement.py LayerShellPlacement | X11Placement (misma interfaz: place(x, y, edge), set_size)
+services/*      usan platform.* (nunca nombres de escritorio)
+extras/gnome-shell/…  extensión provisional (P3)
 ```
-
-Cómo se ve cada principio SOLID:
-- **S** (una responsabilidad por clase): `EventRouter` formatea los avisos, `PillChain` decide qué muestra la
-  píldora, `Dock` mueve la ventana y `Config` guarda las preferencias.
-- **O** (abierto a extensión): cada función nueva añade un proveedor a `PILL_PROVIDERS` o una página a
-  `PAGES`, sin editar `refresh()`.
-- **L** (sustitución): todos los proveedores de píldora cumplen el mismo contrato `match(ctx)` → `render(win, ctx)`,
-  y todas las páginas el contrato `build()` / `fill()` / `opened()`.
-- **I** (interfaces pequeñas): una página solo ve el `core` y unos pocos métodos de la ventana (`go`,
-  `collapse_then`, `row`, `fold`…) a través de un objeto `PageHost`, no toda la ventana.
-- **D** (depender de abstracciones): los servicios reciben callbacks y relojes inyectados, como ya hace
-  `Presence`. `Poller` recibe la función de consulta.
-
-## Archivos o módulos a inspeccionar/modificar
-`isla_dinamica/{common,core,window,widgets,main}.py`, `isla_dinamica/pages/*.py`, `isla_dinamica/services/*.py`,
-`tests/harness.py`, `tests/unit/*`, `install.sh` (solo si cambia la ruta del paquete), `README.md` y
-`docs/DOCUMENTACION.md` (sección Estructura).
+Regla nueva: fuera de `platform/` y `ui/placement.py` no aparece ningún nombre de escritorio, comando de
+compositor ni servicio D-Bus de un escritorio. Se comprueba con una prueba que busca esos nombres.
 
 ## Criterios de aceptación
-1. Las 54 pruebas actuales y las nuevas en verde: `python3 -W error::ResourceWarning -m unittest discover -s tests/unit`.
-2. `python3 -m compileall -q isla_dinamica` sin errores.
-3. Capturas del arnés antes/después iguales en: `pill`, `home`, `github`, `ms`, `presence`, `more`, `weather`, `system`.
-4. Ningún `from … import *` dentro de `isla_dinamica/`.
-5. Ningún archivo de `isla_dinamica/` pasa de unas 400 líneas.
-6. Cada módulo tiene un docstring que explica su responsabilidad, y cada clase pública el suyo.
-7. `isla_v1.py` eliminado; sin bloques duplicados de sonido ni de sondeo.
-8. Cada riesgo de seguridad de la tabla queda corregido con su prueba, o documentado como aceptado.
+1. Todas las pruebas en verde (las 118 actuales y las nuevas).
+2. `detect()` reconoce, a partir de variables de entorno reales, al menos: budgie, gnome, kde, cinnamon, mate,
+   xfce, lxde, lxqt, sway, hyprland, wayfire, river, labwc, pantheon, deepin, unity y «other», en Wayland y X11.
+3. Cada cadena de `platform/` tiene pruebas: elige el método correcto según lo instalado y nunca falla si no
+   hay ninguno.
+4. Aquí, en Budgie Wayland, todo sigue igual: capturas del arnés sin cambios.
+5. La isla corre como ventana X11 en XWayland (`GDK_BACKEND=x11`) y en Docker con Xvfb y Openbox: se ve,
+   queda encima, se puede arrastrar y acoplar, y abre el panel.
+6. `isla-dinamica --doctor` funciona en ambos modos.
+7. `install.sh --deps` genera el comando correcto para apt, dnf, pacman y zypper (con pruebas del generador).
+8. Autoarranque sin rutas fijas de usuario; instrucciones para sway, Hyprland y river (`exec`).
+9. Lista de comprobación por escritorio en `docs/ESCRITORIOS.md` para que el usuario valide en VMs.
+10. Ningún nombre de escritorio fuera de `platform/` y `ui/placement.py` (prueba automática).
 
 ## Estrategia de pruebas
-- **Pruebas de caracterización primero:** antes de mover lógica, fijar con pruebas su comportamiento actual
-  (prioridad de la píldora, burbujas, formatos de hora, parseo de `nmcli`).
-- **Capturas «antes»:** se guardan en `tests/capturas/antes/` (ignorado por git) y se comparan al final de
-  cada fase.
-- **Seguridad:** cada corrección tiene una prueba RED que demuestra el fallo actual (por ejemplo, «la
-  contraseña aparece en argv» o «se abre una URL file://»).
+- Unitarias puras con `Tools` falsos (un `which` que dice qué está instalado y un bus que responde lo que la
+  prueba quiere).
+- Caracterización primero: lo que hoy pasa en Budgie (método elegido = el actual) se fija antes de mover nada.
+- **Integración X11:** `GDK_BACKEND=x11 python3 isla.py` aquí, y una imagen Docker
+  (`tests/docker/x11.Dockerfile`: Debian + python3-gi + gir1.2-gtk-3.0 + xvfb + openbox + xdotool).
+  - El arnés captura la pantalla del Xvfb con `import -window root`.
+  - Con `xdotool` se comprueba que la ventana está arriba, sin decoración y en la posición acoplada.
+- Arnés actual en Budgie para comprobar que no cambia nada.
 
 ## Tareas
 
-### Fase 0 — Red de seguridad
-- [x] **R0.1 Capturas de referencia**
-  - Archivos: ninguno de código.
-  - Paso: `python3 tests/harness.py pill home github ms presence more weather system --setup tests/fixtures/sections_demo.py --out tests/capturas/antes`.
-  - Verificación: 8 PNG guardados.
-- [x] **R0.2 Caracterizar la prioridad de la píldora**
-  - Archivos: `tests/unit/test_pill_priority.py`.
-  - Prueba: contexto falso (llamada + música + pomodoro…) → la píldora elige «call»; sin llamada → «media»; etc. Cubre las 15 ramas.
-  - Requisito: extraer antes la decisión pura de `refresh()` a una función `pick_pill(ctx)` **sin cambiar el
-    orden**. Es el primer cambio GREEN.
-- [x] **R0.3 Caracterizar las burbujas**: `_activities()` → función pura `activities(ctx)` con su prueba.
+### Fase U0 — Detección y diagnóstico
+- [x] **U0.1 `platform/desktop.py`**: `detect(env)` → `Desktop(family, session, compositor)`.
+  - Prueba RED `test_platform_desktop.py`: tabla de entornos reales (XDG_CURRENT_DESKTOP «KDE»,
+    «ubuntu:GNOME», «X-Cinnamon», «LXQt», «Budgie:GNOME», «sway», «Hyprland», DESKTOP_SESSION=«LXDE», solo
+    SWAYSOCK…) → familia y sesión esperadas.
+- [x] **U0.2 `platform/chain.py`**: `Tools(which, session_bus, system_bus)`, `Backend`, `first_available`.
+  - Prueba: elige el primero disponible, salta los que lanzan excepción y devuelve `None` si no hay ninguno.
+- [x] **U0.3 `platform/doctor.py`** + `main.py --doctor`.
+  - Prueba: con `Tools` falsos, el informe lista cada función con su método o «falta: <paquete>».
 
-### Fase 1 — Limpieza sin riesgo
-- [x] **R1.1** Borrar `isla_v1.py` (D1). Verificación: `grep -r isla_v1` vacío y pruebas en verde.
-- [x] **R1.2** Un solo `play_sound(*rutas)` en `util/proc.py`, usado desde `core.py`. Prueba: ignora las rutas que no existen y llama una vez con la primera que existe (Popen inyectado).
-- [x] **R1.3** Corregir los títulos de sección de `widgets.py` y añadir docstrings donde falten.
+### Fase U1 — Ventana en cualquier escritorio
+- [x] **U1.1 `ui/placement.py`**: sacar de `ui/dock.py` y `window.py` todo lo de GtkLayerShell a
+  `LayerShellPlacement` (sin cambiar el comportamiento). Las capturas del arnés no deben cambiar.
+- [x] **U1.2 `X11Placement`**: cálculo puro `x11_geometry(edge, pos, w, h, monitor)` reutilizando `dock_xy`
+  (prueba) y la ventana configurada como en P2.
+- [x] **U1.3 Elección y relanzamiento** en `main.py`: Wayland con layer-shell → LayerShell; Wayland sin
+  layer-shell y sin extensión → `os.execv` con `GDK_BACKEND=x11` (una sola vez, marcado con una variable);
+  X11 → X11.
+  - Prueba pura `choose_backend(desktop, layer_shell_ok, gnome_ext_ok, env)`.
+- [x] **U1.4 Máscara de forma** sin compositor (`screen.is_composited()` falso).
+- [x] **U1.5 Teclado en X11**: que el campo de contraseña Wi-Fi y la búsqueda del clima reciban el foco
+  (`set_accept_focus` y `present` al abrir el panel; prueba manual con xdotool).
+- [x] **U1.6 Docker X11**: Dockerfile y script `tests/x11_smoke.sh` que arranca Xvfb + Openbox + la isla,
+  captura la pantalla y comprueba con xdotool.
 
-### Fase 2 — Partir `common.py` (S)
-- [x] **R2.1** Crear `config.py`, `util/fmt.py`, `util/proc.py`, `util/net.py`, `ui/style.py` y `ui/gtk.py`, moviendo el código tal cual.
-  - Durante la transición, `common.py` reexporta estos nombres para no romper nada. Se borra en R2.3.
-  - Pruebas: las actuales (`test_config_presence`, `test_sections`…) importan desde los módulos nuevos.
-- [x] **R2.2** Importaciones explícitas en `services/` (sustituir `from ..common import *`).
-- [x] **R2.3** Importaciones explícitas en `pages/`, `core.py`, `window.py` y `main.py`; borrar `common.py`.
-  - Verificación: `grep -rn "import \*" isla_dinamica` vacío.
+### Fase U2 — Avisos y No molestar
+- [x] **U2.1 Monitor genérico** de `org.freedesktop.Notifications.Notify` (BecomeMonitor en una conexión
+  propia). Se mantiene el de Budgie como primer método. Prueba: los parámetros de un `Notify` se convierten
+  en el mismo diccionario que hoy (función pura compartida).
+- [x] **U2.2 `platform/dnd.py`**: leer, cambiar y escuchar «No molestar» por escritorio o daemon (lista de
+  arquitectura). Prueba por método con bus o comandos falsos.
+- [x] **U2.3 Centro de avisos**: Budgie Raven, `swaync-client -t`, GNOME (extensión o `Main.panel`); si no hay
+  método, el botón se oculta.
 
-### Fase 3 — `Poller` común para los servicios que sondean (DRY + D)
-- [x] **R3.1** `services/poller.py`: `Poller(interval_fn, fetch, enabled)` con `schedule(secs)`, `refresh()` y `stop()`, usando un reloj y un `timeout_add` inyectables.
-  - Prueba RED: con un `timeout_add` falso, el siguiente intervalo es corto si hay algo en curso y largo si no, y no hay dos consultas a la vez.
-- [x] **R3.2** Pasar `deploys.py`, `github.py`, `weather.py`, `fx.py` y `gitwatch.py` a `Poller`. Sus pruebas y las capturas deben seguir iguales.
-- [ ] ~~**R3.3**~~ (descartado: solo dos usos, ver «Resultado del refactor») Un helper `refresh_if_stale(service, max_age)` para las páginas (`_open_github`, `_open_ms`…).
+### Fase U3 — Presencia: bloqueo, pantalla e inactividad
+- [x] **U3.1 `platform/lock.py`** con verificación (S2): un método solo cuenta como éxito si acepta la orden.
+  `Presence` y `Power.lock` lo usan. Prueba: ningún método → False → no se apaga la pantalla (la prueba S2
+  sigue en verde).
+- [x] **U3.2 `platform/screen.py`**: apagar y encender por escritorio. Prueba por método (argv esperado).
+- [x] **U3.3 `platform/idle.py`**: `IdleWatch` con dos formas, proceso (swayidle) o sondeo (idle_ms cada
+  2 s), con la misma interfaz `on_idle`/`on_active`. Prueba del sondeo con reloj e `idle_ms` falsos. XScreenSaver
+  por ctypes (`libXss.so.1`), sin depender de xprintidle.
 
-### Fase 4 — `core.py`: separar el formateo de avisos (S)
-- [x] **R4.1** `events.py` con `EventRouter(show_event, open_…)`: pasar ahí los `_on_*` de `core.py` (batería, despliegues, GitHub, red, sysmon, servidores, descargas, USB, Bluetooth, pomodoro, recordatorios).
-  - Prueba RED: `EventRouter` con un `show_event` falso, de modo que `deploy("start", d)` genera la píldora naranja «Desplegando x · env» y `deploy` con FAILURE genera una tarjeta roja con acción. Una prueba por cada tipo de evento.
-- [x] **R4.2** Pasar la captura de pantalla y la grabación a `services/capture.py`.
-- [x] **R4.3** Quitar `subprocess.run(wpctl)` del hilo de la UI en `media.py:83` y usar `run()` asíncrono.
+### Fase U4 — Portapapeles, capturas y grabación
+- [x] **U4.1 Portapapeles**: método Gtk.Clipboard `owner-change` para X11/XWayland y `copy` con
+  `Gtk.Clipboard.set_text` + `store`. Mismo filtro de secretos (S4). Prueba: `History` intacto; elección de
+  método.
+- [x] **U4.2 Capturas**: cadena de `platform/capture.py` con área y pantalla completa; el portal
+  `org.freedesktop.portal.Screenshot` como último recurso universal. Prueba del argv por método.
+- [x] **U4.3 Grabación**: cadena de `platform/record.py`; ffmpeg x11grab con área (`-video_size`/`-i :0+x,y`) y
+  audio de `pulse`. Si no hay método, la página Grabar se oculta. Prueba del argv.
 
-### Fase 5 — `window.py`: composición en vez de herencia (S, O, I)
-- [x] **R5.1** `ui/pill.py`: `PILL_PROVIDERS = [AlertProvider, CardHoldProvider, …]`, cada uno con `match(ctx)` y `render(win, ctx)`. `refresh()` recorre la lista.
-  - Prueba: la de R0.2 sigue en verde, ahora contra `PILL_PROVIDERS`.
-- [x] **R5.2** `ui/bubbles.py` (cálculo y dibujo de las burbujas) y `ui/dock.py` (arrastre, acople, `_nearest_edge`, `_target_xy`).
-  - Prueba: `nearest_edge` y `target_xy` son puros, así que se prueban con varias geometrías de monitor.
-- [x] **R5.3** `PageHost`: interfaz pequeña que la ventana expone a las páginas (`core`, `go`, `collapse_then`, `row`, `fold`, `empty`, `page`, `scroller`, `switch`, `copy`).
-  - Las páginas pasan de mixins a clases `Page(host)`, y `IslandWindow` deja de heredar de `PAGE_CLASSES`.
-  - Se migra página a página (primero GitHub y Teams, que ya usan `fold`). Cada página migrada debe dar la misma captura.
-- [x] **R5.4** Mover los widgets a `ui/widgets/` (un archivo por widget o por familia).
+### Fase U5 — Ajustes rápidos y sesión
+- [x] **U5.1 `platform/appearance.py`**: oscuro y luz nocturna por escritorio; lectura del oscuro por el
+  portal. La casilla se oculta si no hay método.
+- [x] **U5.2 `platform/session.py`**: cerrar sesión y mantener despierto (cadena; `systemd-inhibit` como último
+  recurso, guardando el proceso).
+- [x] **U5.3 `platform/apps.py`**: ajustes (wifi, bluetooth, energía, pantalla) y monitor del sistema por
+  escritorio; `Page._settings` y la página Sistema lo usan. Prueba: tabla escritorio → argv.
+- [x] **U5.4 `platform/audio.py`**: volumen con `pactl` si no hay `wpctl`; sonido con
+  `pw-play` → `paplay` → `canberra-gtk-play`. Prueba de `parse` de la salida de pactl.
 
-### Fase 6 — Documentación del código
-- [x] **R6.1** Docstring de módulo y de clase en todo `isla_dinamica/`, y comentarios en las partes no obvias (prioridades, tiempos, hilos, `GLib.idle_add`).
-- [x] **R6.2** Actualizar la «Estructura» de `README.md`, la de `docs/DOCUMENTACION.md` y `.ai/PROJECT_MEMORY.md` con la arquitectura nueva y un diagrama de dependencias entre capas.
+### Fase U6 — Instalación y arranque
+- [x] **U6.1 `install.sh --deps`**: el generador de paquetes en `tools/deps.py` (puro y probado), con
+  paquetes por familia y por escritorio. Ejemplos:
+  - apt: `python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 …`
+  - dnf: `python3-gobject gtk3 gtk-layer-shell …`
+  - pacman: `python-gobject gtk3 gtk-layer-shell …`
+  - zypper: `python3-gobject-Gdk typelib-1_0-GtkLayerShell-0_1 …`
 
-### Fase S — Seguridad (cada fila es una tarea TDD)
+  Se pregunta antes de ejecutar con sudo.
+- [x] **U6.2 Autoarranque**: `install.sh` escribe `~/.config/autostart/isla-dinamica.desktop` con la ruta
+  real del usuario. En sway, Hyprland, river y labwc muestra la línea `exec` que hay que añadir (no
+  edita la configuración del compositor sin permiso).
+- [x] **U6.3 Lanzador** `~/.local/bin/isla-dinamica` con `--doctor`.
 
-| # | Riesgo | Dónde | Impacto | Corrección propuesta | Prueba RED |
-|---|---|---|---|---|---|
-| **S1** | La **contraseña del Wi‑Fi** se pasa en la línea de comandos de `nmcli` y cualquier usuario o proceso local puede leerla en `/proc/<pid>/cmdline` o con `ps` mientras dura la conexión | `services/network.py:149` | **Alto** | Pasarla por un archivo temporal `passwd-file` con permisos 0600 en `$XDG_RUNTIME_DIR` (`nmcli --ask … passwd-file`), borrarlo siempre en `finally` y no dejarla nunca en argv | Con un `run` falso, `connect(net, password="x")` → `"x"` no aparece en argv y el archivo se crea con modo 0600 y se borra después |
-| **S2** | La presencia **apaga la pantalla aunque el bloqueo haya fallado**: si el D-Bus de Budgie y `loginctl` fallan, la sesión queda abierta con la pantalla negra y el estado dice «Bloqueado» | `services/presence.py:226-239`, `_tick` | **Alto** (la función promete seguridad) | `lock()` devuelve si bloqueó (comprobando `LockedHint` de logind o el código de salida de `loginctl`). Si no bloqueó, no apaga la pantalla y muestra el estado de error «No se pudo bloquear» | Acción `lock` falsa que devuelve False → no se llama `screen_off`, el estado es `error` y se avisa |
-| **S3** | **URLs sin validar** de terceros: `logUrl`/`environmentUrl` de los despliegues (los escribe la plataforma) y las URLs de GitHub se abren con `open_uri`, que acepta `file://`, `ssh://` o esquemas de apps instaladas | `services/deploys.py:93`, `pages/github.py`, `core.open_github` | Medio | `safe_open_url(url)`: solo `https://` (y `http://` para `localhost`). Si no cumple, se ignora y se registra con `dbg` | `file:///etc/passwd`, `javascript:` y `x-scheme://` no se abren; `https://github.com/...` sí |
-| **S4** | **Historial del portapapeles** con secretos: guarda los últimos 40 textos copiados (tokens, contraseñas copiadas desde la terminal) y los muestra en claro. Solo filtra el aviso de KDE | `services/clipboard.py` | Medio | Ocultar (`••••`) y no guardar en el historial lo que parezca un secreto (claves `ghp_`, `sk-`, `AKIA`, JWT, cadenas de alta entropía de más de 20 caracteres sin espacios); caducar las entradas a los 30 min y vaciar al bloquear la sesión | `looks_secret("ghp_abc…")` es True y `"hola mundo"` es False; un secreto copiado no entra en `items` |
-| **S5** | **La isla sobre la pantalla de bloqueo**: si el bloqueo de Budgie no usa `ext-session-lock`, la isla (capa *overlay*) podría verse e incluso usarse sobre él: avisos, portapapeles, Wi‑Fi, apagar… | `window.py`, `core.py` | Alto **si se confirma** | 1) Comprobación manual (bloquear y mirar). 2) Si se ve: escuchar `LockedHint` / `Lock` de logind y ocultar la isla mientras dure el bloqueo | `Core` con una señal de bloqueo falsa → `set_hidden(True)`, y al desbloquear `set_hidden(False)` |
-| **S6** | **Abrir descargas directamente**: el clic en una descarga la abre con la app predeterminada; un archivo malicioso (`.desktop`, script o documento con macros) queda a un clic | `pages/downloads.py:63` | Bajo-medio | Para tipos ejecutables o desconocidos (`application/x-executable`, `x-shellscript`, `x-desktop`, `x-ms-dos-executable`…) mostrarlo en la carpeta en vez de abrirlo | `should_open_directly("x.sh")` es False y `"foto.png"` es True |
-| **S7** | Una **notificación puede lanzar cualquier app instalada**: el hint `desktop-entry` lo pone quien envía el aviso, y al hacer clic la isla lanza esa entrada | `core.open_notif` → `launch_desktop` | Bajo | Lanzar solo si el `desktop-entry` coincide con la app que envió el aviso (`app_name`); si no, abrir el centro de notificaciones | Aviso de la app «X» con `desktop-entry` «terminal» → no se lanza |
-| **S8** | **Registro de datos privados** con `ISLA_DEBUG`: imprime el título de cada notificación (mensajes de Teams o del correo) | `core.py:218` | Bajo | Registrar solo la app y el tipo, no el contenido | Con `dbg` capturado, el resumen no aparece en la salida |
-| **S9** | **Permisos de `config.json`**: se crea con la umask (normalmente 0644) y lo puede leer cualquier usuario local (carpetas, ciudad, horario) | `Config.save` | Bajo | Crear el archivo temporal con 0600 antes de escribir | Tras `save()`, el modo es 0600 |
+### Fase U7 — Extensión provisional de GNOME Shell
+- [x] **U7.1** `extras/gnome-shell/isla-dinamica@bitbro404.github.io/` con `metadata.json` (shell-version 45–48)
+  y `extension.js`.
+  - Ventana de la isla: siempre encima, en todos los espacios, fuera de Alt+Tab y de la vista general.
+  - D-Bus `io.github.bitbro404.IslaDinamica.Shell` con `GetIdletime`, `Screenshot(area)`, `Screencast(...)`,
+    `SetPowerSave(bool)` y `ToggleNotificationCenter`.
+- [x] **U7.2** `install.sh --gnome-extension` la copia y la activa con `gnome-extensions enable` (pregunta
+  antes).
+- [x] **U7.3** La isla detecta la extensión (nombre en el bus) y la usa en las cadenas de U2–U4.
+  - Prueba unitaria del lado Python (bus falso).
+  - El JavaScript queda **sin probar aquí** (no hay GNOME); se marca como provisional en `docs/ESCRITORIOS.md`.
 
-Riesgos revisados que **no** necesitan cambios (para no repetir el análisis):
-- No hay `shell=True`, `eval`, `exec`, `pickle` ni `yaml.load`.
-- Los `sh -c` del portapapeles y de la captura pasan la ruta como `$1`, nunca interpolada en el texto del script.
-- Ninguna etiqueta usa *markup* de Pango con texto externo: `strip_markup` + `Gtk.Label` en texto plano.
-- `fetch_json` usa HTTPS con un tiempo de espera de 10 s, y el nombre de la ciudad se codifica con `urllib.parse.quote`.
-- `servers.stop` solo puede matar procesos propios: sin root, `ss` no da el PID de procesos ajenos y `kill` fallaría.
-- La consulta de `gh` interpola `login`, que viene del propio `gh api user`, no de terceros.
-- El modelo YuNet en `~/.local/share` solo lo puede cambiar el propio usuario.
+### Fase U8 — Documentación y cierre
+- [x] **U8.1** Prueba de la regla «sin nombres de escritorio fuera de `platform/`»
+  (`tests/unit/test_architecture.py`, analiza el AST; `make check` la ejecuta). La extensión y la elección
+  de backend se centralizaron en `platform/shell.py` y `platform/placement.py`.
+- [x] **U8.2** README: requisitos por distro, tabla de escritorios con lo que funciona en cada uno, `--doctor` y
+  `--deps`. `docs/DOCUMENTACION.md`: niveles de dependencias por escritorio.
+- [x] **U8.3** `docs/ESCRITORIOS.md`: lista de comprobación por escritorio (qué probar y qué esperar).
+- [x] **U8.4** Verificación final (2026-11-21):
+  - `make check` → 218 pruebas unitarias OK (incluye la regla de arquitectura) + `compileall` OK;
+  - arnés en Budgie → `pill`, `home` y `notifs` capturados en `/tmp/opencode/isla-final`, sin tracebacks;
+  - XWayland (`GDK_BACKEND=x11 ISLA_RELAUNCHED=1`) → 7 s activo, solo el SIGINT del temporizador;
+  - Docker X11 (`tests/x11_smoke.sh`) → 0 tracebacks, ventana DOCK arriba, sin barra, arrastrable y acoplable;
+  - `--doctor` en modo layer-shell (Budgie/Wayland) y en modo X11 (LXDE/X11) → 15 funciones;
+  - `./install.sh` → lanzador, autoarranque con ruta real y `isla-dinamica --doctor` funcionando.
 
-## Riesgos y casos límite del refactor
-- **Romper el aspecto sin que fallen las pruebas:** se mitiga con capturas antes/después en cada fase.
-- **Atributos que las páginas leen de la ventana** (`self.hover`, `self.page`…): R5.3 los hace explícitos en
-  `PageHost`. Si sale alguno no previsto, se añade a la interfaz y se anota aquí.
-- **Señales de GTK conectadas a métodos de las páginas mixin:** al pasar a composición, cuidar las lambdas que
-  capturan `self`.
-- **Tamaño del cambio:** cada fase se puede hacer en un commit; si algo se tuerce se revierte solo esa fase.
+## Riesgos y casos límite
+- **GNOME sin extensión (XWayland):** Mutter puede poner la isla detrás de ventanas a pantalla completa y no
+  da inactividad, captura ni grabación a apps normales.
+  - Mitigación: extensión (U7); y si no está, el portal de capturas e inactividad por sondeo
+    (`org.gnome.Mutter.IdleMonitor`, que sí es accesible).
+- **Openbox sin compositor:** sin transparencia ni sombras → máscara de forma; la sombra se pierde.
+- **Varios monitores en X11 con escalas distintas:** la posición se calcula por monitor con `Gdk.Monitor`; puede
+  quedar desplazada en configuraciones raras. Se comprueba en Xvfb con dos pantallas virtuales.
+- **Foco de teclado en X11** con ventanas tipo DOCK: algunos gestores no les dan foco. Plan B: tipo UTILITY con
+  `skip_taskbar`.
+- **Nombres de paquetes** distintos entre versiones de distro: `--deps` muestra el comando antes de ejecutarlo
+  y no falla si un paquete no existe (sugiere `--doctor`).
+- **La extensión de GNOME no se puede probar aquí:** queda marcada como provisional hasta que el usuario la
+  pruebe en una VM con GNOME.
+- **Tamaño:** muchos archivos nuevos pero aislados en `platform/`. Cada fase es un commit independiente.
 
 ## Pendientes/preguntas abiertas
-- P1. ¿Aprobar D1 a D4 tal como están?
-- P2. ✅ Decidido: toda la fase S primero y después el refactor.
-- P3. S5 necesita una prueba manual tuya: bloquear la sesión (Super+L) y decir si la isla se ve encima.
+- Ninguna bloqueante. P1–P5 se aprueban con el plan.
 
 ## Comandos de verificación
+```bash
+make check    # compileall + 218 pruebas unitarias (incluye test_architecture.py)
+```
 ```bash
 python3 -W error::ResourceWarning -m unittest discover -s tests/unit
 ```
 ```bash
-python3 -m compileall -q isla_dinamica
+GDK_BACKEND=x11 python3 isla.py
 ```
 ```bash
-grep -rn "import \*" isla_dinamica
+python3 isla.py --doctor
 ```
 ```bash
-python3 tests/harness.py pill home github ms presence more weather system --setup tests/fixtures/sections_demo.py --out tests/capturas/despues
+tests/x11_smoke.sh
 ```
 ```bash
-wc -l isla_dinamica/**/*.py | sort -rn | head
+./install.sh --deps
 ```
 
 ## Estado y siguiente paso
-- Fase S terminada y validada por el usuario.
-- Refactor R0–R6 terminado: 118 pruebas en verde, `compileall` OK, sin `import *`, isla instalada con `./install.sh`.
-- Siguiente paso: validación del usuario → resumen en `.ai/summaries/` → commit (lo hace el usuario: firma GPG).
-
-### Resultado del refactor (y en qué se apartó del plan)
-- R0: capturas en `tests/capturas/antes/`; `ui/pill.py` (`PillState`, `PILL_ORDER`, `pick_pill`) y
-  `ui/bubbles.py` (`activities`, `bubble_rects`) puros con `test_pill_priority.py` y `test_bubbles.py`.
-- R1: `isla_v1.py` borrado; `util/proc.play_sound` único (prueba `test_play_sound.py`, de caracterización: la
-  función ya existía, no se vio en rojo).
-- R2: `common.py` y `widgets.py` borrados en un solo paso (sin la fase de reexportación): `config.py`,
-  `util/{fmt,proc,safety,net,links}.py`, `ui/{style,gtk}.py`, `ui/widgets/{art,audio,weather_icon,charts,tile}.py`.
-  Los imports explícitos se generaron con `symtable` (nombres libres → módulo que los define).
-  `gi.require_version` vive en `isla_dinamica/__init__.py`. `services/__init__.py` ya no reexporta nada.
-- R3: `Poller` con `every/soon/retry/stop` (en vez de `schedule/refresh`), con `timeout_add` inyectado
-  (`test_poller.py`). Usado por deploys, github, weather, fx y gitwatch. **R3.3 (`refresh_if_stale`) no se hizo**:
-  solo había dos usos y no compensaba la abstracción.
-- R4: `events.py` (`EventRouter`, `test_events.py`); captura/grabación en `isla_dinamica/capture.py` (no en
-  `services/`, porque usa GTK y el núcleo); volumen asíncrono con `parse_volume` (`test_volume_parse.py`).
-- R5: en lugar de clases «Provider», la píldora usa `PILL_ORDER` + un método `_pill_<clave>` por estado
-  (abierto/cerrado: añadir un estado = una clave y un método). La ventana se compone de mixins
-  (`ui/pill_view.py`, `ui/bubbles.py`, `ui/paint.py`, `ui/dock.py`) y las páginas son objetos `Page(host)`
-  (`pages/base.py`) con ganchos `live/on_collapse/typing/waiting`. Geometría del acople pura (`test_dock.py`).
-- R6: docstring en todos los módulos y clases; «Estructura» del README reescrita con el sentido de las
-  dependencias; `docs/DOCUMENTACION.md` no tenía sección de estructura: se añadió «Para desarrolladores» que
-  remite al README; `.ai/PROJECT_MEMORY.md` actualizado.
-- Capturas después (todas las páginas, con y sin fixtures): sin errores; las diferencias con «antes» son de
-  datos en vivo (hora, batería, audio real, secciones plegadas en tu config).
-- Archivo más largo: `services/presence.py` (426 líneas, no se tocó su estructura); el resto ≤ 365.
-
-### Resultado de la fase S
-- [x] S1 `services/network.py`: `wifi_connect_command` → `nmcli --ask` con la contraseña por stdin. Prueba: `test_sec_wifi.py`.
-- [x] S2 `services/presence.py`: `_budgie_lock` devuelve si bloqueó; si falla, NO apaga la pantalla y el estado es `lock_failed`. Prueba: `test_presence_service.test_failed_lock_never_turns_screen_off`.
-- [x] S3 `common.is_safe_web_url` / `open_web` + `deploys.deploy_url`; usados en despliegues, PR y servidores. Prueba: `test_sec_urls.py`.
-- [x] S4 `services/clipboard.py`: `looks_secret` + `History` (no guarda secretos, caduca a los 30 min, límite 40). Prueba: `test_sec_clipboard.py`.
-- [x] S5 `services/lockguard.py`: `LockGuard` + `watch_session_lock` (logind Lock/Unlock/LockedHint de la sesión «Display») → oculta la isla y vacía el portapapeles. Prueba: `test_sec_lockguard.py` (se escribió junto con la implementación; no se vio en rojo).
-- [x] S6 `common.safe_to_open`: las descargas ejecutables o desconocidas se muestran en la carpeta (página y tarjeta). Prueba: `test_sec_low.py`.
-- [x] S7 `common.desktop_matches_app`: un aviso solo lanza la app que lo envió.
-- [x] S8 `common.notif_debug_line`: el registro de depuración no incluye el contenido de los avisos.
-- [x] S9 `Config.save`: `config.json` con permisos 0600.
-- Riesgo residual S1: no se pudo probar `nmcli --ask` con una red real desde aquí.
-- Riesgo residual S5: si el bloqueador de Budgie no avisa a logind (Lock/LockedHint), la isla no se oculta con su bloqueo; queda la comprobación manual.
+- Fases U0–U8 ejecutadas con TDD y verificadas: **218 pruebas unitarias en verde**, `compileall` OK,
+  `--doctor` en modo layer-shell y X11, XWayland sin tracebacks, humo X11 en Docker, arnés en Budgie e
+  `install.sh` con lanzador y autoarranque. Cambios **sin commitear** (no se hace commit sin autorización).
+- Siguiente paso del usuario: validar en VM los escritorios que no hay aquí (D4) siguiendo
+  `docs/ESCRITORIOS.md`, sobre todo la extensión provisional de GNOME (U7), KDE, Cinnamon, MATE, XFCE,
+  LXQt y sway/Hyprland. Hasta entonces el trabajo queda a la espera de confirmación.
 
 ## Registro de decisiones
-- 2026-11-21: se archiva el plan de presencia en `.ai/plans/`; este `plan.md` es el del refactor y la seguridad.
+- 2026-11-21: plan de seguridad y refactor archivado; este plan es el de soporte multi-escritorio.
+- 2026-11-21: D1–D4 confirmadas por el usuario (soporte para todos con piezas provisionales, ocultar + doctor,
+  `--deps` con confirmación, pruebas unitarias + X11 aquí).
+- 2026-11-21: U2 integrado: `services/notifications.py` delega en las cadenas de `platform/`; los métodos de
+  `CENTER` son acciones (se ejecutan con el bus), no fábricas; `supported`/`has_center` ocultan el tile y el
+  botón sin método. Los backends que no avisan se consultan cada 3 s.
+- 2026-11-21: U3 integrado: `DEFAULT_ACTIONS` de `Presence` y `Power.lock` usan `platform/lock.py` y
+  `platform/screen.py`; se mantiene la regla S2 (sin bloqueo verificado no se apaga la pantalla).
+  `IdleWatch` se movió a `platform/idle.py` y se reexporta desde `services/presence.py` (swayidle en wlroots,
+  sondeo con libXss/Mutter/KDE en el resto).
+- 2026-11-21: U4 integrado con `History`/S4 intactos: portapapeles (`wl-paste` → Gtk.Clipboard → portal),
+  capturas (grim/spectacle/extensión/maim/scrot/portal) y grabación (wf-recorder/ffmpeg/extensión/portal).
+- 2026-11-21: U5 integrado: `appearance`, `session` (con `systemd-inhibit` y cierre de sesión por escritorio),
+  `apps` y `audio` (wpctl→pactl, pw-play→paplay→canberra); `Modes` delega en `Appearance` y `Session`.
+- 2026-11-21: U6/U7 integrados: `tools/` calcula paquetes, autoarranque y lanzador; `install.sh` pregunta
+  antes de instalar dependencias o la extensión; `platform/shell.py` centraliza el puente D-Bus y
+  `platform/placement.py` la elección de backend.
+- 2026-11-21: U8 cerrado: regla de arquitectura por AST, documentación universal y verificación final en
+  verde. La extensión de GNOME sigue marcada como provisional hasta la validación en VM.

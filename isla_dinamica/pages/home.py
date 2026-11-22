@@ -125,8 +125,12 @@ class HomePage(Page):
         self.t_presence = Tile("view-reveal-symbolic", "Presencia",
                                lambda: c.set_feature("presence", not c.feature("presence")),
                                lambda: self.go("presence"))
-        tiles = [self.t_wifi, self.t_bt, self.t_air, self.t_dnd, self.t_dark,
-                 self.t_night, self.t_saver, self.t_awake, self.t_presence]
+        tiles = [self.t_wifi, self.t_bt, self.t_air]
+        if c.notif.supported:                 # sin servidor de avisos conocido, el tile no tiene sentido
+            tiles.append(self.t_dnd)
+        tiles += [t for t, ok in ((self.t_dark, m.dark_available), (self.t_night, m.night_available),
+                                  (self.t_saver, True), (self.t_awake, m.awake_available),
+                                  (self.t_presence, True)) if ok]
         if c.charge_limit.supported:
             tiles.append(self.t_care)
         cols = 5 if len(tiles) > 8 else 4
@@ -242,8 +246,10 @@ class HomePage(Page):
         self.t_air.set(c.radios.airplane, "Activado" if c.radios.airplane else "")
         self.t_dnd.set(c.notif.dnd, "Activado" if c.notif.dnd else "")
         md = c.modes
-        self.t_dark.set(md.dark, "Activado" if md.dark else "")
-        self.t_night.set(md.night, "Activada" if md.night else "")
+        if self.t_dark.get_parent():
+            self.t_dark.set(md.dark, "Activado" if md.dark else "")
+        if self.t_night.get_parent():
+            self.t_night.set(md.night, "Activada" if md.night else "")
         self.t_saver.set(md.profile == "power-saver",
                          {"power-saver": "Activado", "performance": "Rendimiento"}.get(md.profile, ""))
         self.t_awake.set(md.awake, "Activado" if md.awake else "")

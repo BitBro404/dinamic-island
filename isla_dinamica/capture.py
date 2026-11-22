@@ -19,7 +19,13 @@ class Capture:
         self.core = core
 
     def record(self, monitor=None):
-        """Con monitor: graba esa pantalla. Sin monitor: eliges un área con slurp."""
+        """Con monitor: graba esa pantalla. Sin monitor: eliges área con slurp o el propio método."""
+        from .platform.chain import Tools
+        from .platform.record import choose
+
+        method = choose(Tools(), self.core.desktop)
+        area = method.act[2] if method else None
+
         def go(geom):
             if self.core.recorder.start(geom):
                 for w in self.core.windows.values():
@@ -32,7 +38,7 @@ class Capture:
             if monitor is not None:
                 g = monitor.get_geometry()
                 go(f"{g.x},{g.y} {g.width}x{g.height}")
-            else:
+            elif area == "slurp":
                 self.core.set_hidden(True)
 
                 def picked(ok, out, _e):
@@ -40,6 +46,8 @@ class Capture:
                     if ok and out.strip():
                         go(out.strip())
                 run(["slurp", "-d", "-b", "00000099", "-c", "ff453aff", "-s", "00000000", "-w", "2"], picked)
+            else:
+                go(None)                    # la extensión o el portal eligen la fuente
             return False
         GLib.timeout_add(250, start)
 
@@ -57,36 +65,54 @@ class Capture:
                         action=lambda: open_uri(Gio.File.new_for_path(path).get_uri()))
 
     def screenshot(self, monitor=None):
-        """Sin monitor: eliges un área con un rectángulo sobre la pantalla sombreada.
-        Con monitor: captura esa pantalla completa."""
+        """Captura con el método del escritorio. Sin monitor se elige área (slurp o la propia herramienta)."""
+        from .platform.chain import Tools
+        from .platform.capture import SHELL_BUS, SHELL_PATH, build, choose, copy_image
+
+        tools = Tools()
+        method = choose(tools, self.core.desktop)
+        kind, _builder, area = method.act
         folder = os.path.join(GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
                               or os.path.expanduser("~/Imágenes"), "Capturas")
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, time.strftime("Captura %Y-%m-%d %H-%M-%S.png"))
         self.core.set_hidden(True)
 
+        def saved(ok, _o, _err):
+            self.core.set_hidden(False)
+            if not ok:
+                self.core.show_event(3, kind="pill", icon="dialog-warning-symbolic", accent="red",
+                                     text="No se pudo capturar")
+                return
+            copy_image(path, tools, self.core.desktop)
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_size(path, 160, 160)
+            except GLib.Error:
+                pb = None
+            self.core.show_event(7.0, kind="card", pixbuf=pb, icon="camera-photo-symbolic", app="Captura",
+                                 title="Guardada y copiada al portapapeles", body=os.path.basename(path),
+                                 action=lambda: open_uri(GLib.filename_to_uri(path, None)))
+
         def grab(geom):
-            def saved(ok, _o, _err):
-                self.core.set_hidden(False)
-                if not ok:
-                    self.core.show_event(3, kind="pill", icon="dialog-warning-symbolic", accent="red",
-                                    text="No se pudo capturar")
-                    return
-                run(["sh", "-c", 'wl-copy -t image/png < "$1"', "sh", path])
-                try:
-                    pb = GdkPixbuf.Pixbuf.new_from_file_at_size(path, 160, 160)
-                except GLib.Error:
-                    pb = None
-                self.core.show_event(7.0, kind="card", pixbuf=pb, icon="camera-photo-symbolic", app="Captura",
-                                title="Guardada y copiada al portapapeles", body=os.path.basename(path),
-                                action=lambda: open_uri(GLib.filename_to_uri(path, None)))
-            run(["grim", "-g", geom, path], saved)
+            argv = build(method, geom, path)
+            if argv:
+                run(argv, saved)
+            elif kind == "dbus":
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+                bus.call(SHELL_BUS, SHELL_PATH, SHELL_BUS, "Screenshot", GLib.Variant("(s)", (geom or "",)),
+                         None, 0, 2000, None, lambda *_: saved(True, "", ""))
+            else:                              # portal de escritorio (último recurso)
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+                opts = {"interactive": GLib.Variant("b", True)}
+                bus.call("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+                         "org.freedesktop.portal.Screenshot", "Screenshot", GLib.Variant("(sa{sv})", ("", opts)),
+                         GLib.VariantType("(o)"), 0, 5000, None, lambda *_: saved(True, "", ""))
 
         def start():
             if monitor is not None:
                 g = monitor.get_geometry()
                 grab(f"{g.x},{g.y} {g.width}x{g.height}")
-            else:
+            elif area == "slurp":
                 def picked(ok, out, _e):
                     if ok and out.strip():
                         grab(out.strip())
@@ -94,5 +120,7 @@ class Capture:
                         self.core.set_hidden(False)
                 run(["slurp", "-d", "-b", "00000099", "-c", "ffffffff", "-s", "00000000", "-w", "2",
                      "-B", "ffffff22"], picked)
+            else:
+                grab(None)                    # la herramienta o el portal eligen el área
             return False
         GLib.timeout_add(250, start)

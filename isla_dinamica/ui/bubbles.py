@@ -10,7 +10,7 @@ import math
 from gi.repository import Gtk
 
 from ..util.fmt import fmt_secs
-from .gtk import set_accent
+from .gtk import icon_name, set_accent
 from .style import BUB_GAP, H
 from ..services.pomodoro import Pomodoro
 
@@ -113,7 +113,7 @@ class BubblesMixin:
                     art.set_pixbuf(a["art"])
                     st.set_visible_child_name("art")
                 else:
-                    img.set_from_icon_name(a["icon"], Gtk.IconSize.MENU)
+                    img.set_from_icon_name(icon_name(a["icon"]), Gtk.IconSize.MENU)
                     set_accent(img, a.get("accent"))
                     st.set_visible_child_name("icon")
                 st.set_tooltip_text(a.get("tip"))

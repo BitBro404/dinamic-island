@@ -1,12 +1,12 @@
 """Acople a los bordes: arrastrar la isla y pegarla arriba, abajo, a la izquierda o a la derecha.
 
 Las funciones de geometría son puras (se prueban en tests/unit/test_dock.py); `DockMixin` las usa desde la
-ventana para colocarla con gtk-layer-shell y para el arrastre con el ratón.
+ventana para colocarla (con `ui/placement.py`: layer-shell, X11…) y para el arrastre con el ratón.
 """
 import math
 import time
 
-from gi.repository import GLib, Gdk, Gtk, GtkLayerShell
+from gi.repository import GLib, Gdk, Gtk
 
 from ..util.proc import dbg
 from .style import DRAG_MIN, GAP
@@ -48,10 +48,6 @@ def layer_layout(edge, x, y, w, h, mw, mh):
     return ("top", "left"), {"top": y, "left": x}
 
 
-_EDGES = {"top": GtkLayerShell.Edge.TOP, "bottom": GtkLayerShell.Edge.BOTTOM,
-          "left": GtkLayerShell.Edge.LEFT, "right": GtkLayerShell.Edge.RIGHT}
-
-
 class DockMixin:
     """Arrastre y colocación de la ventana. Lo usa IslandWindow; necesita self.monitor, self.core, self.cur, self.pad, self.drag y los métodos de animación."""
 
@@ -83,16 +79,7 @@ class DockMixin:
         y = max(0, min(round(y + self.poff[1]) - pt, mh - h))
         self._last_xy = (x, y)
         edge = None if self.drag and self.drag["moving"] else self.core.dock["edge"]
-        layout = layer_layout(edge, x, y, w, h, mw, mh)
-        if layout == self._layout:
-            return
-        anchors, margins = layout
-        if self._layout is None or anchors != self._layout[0]:
-            for name, e in _EDGES.items():
-                GtkLayerShell.set_anchor(self, e, name in anchors)
-        for name, e in _EDGES.items():
-            GtkLayerShell.set_margin(self, e, int(margins.get(name, 0)))
-        self._layout = layout
+        self.placement.apply(edge, x, y, w, h, mw, mh)
         if self._applied == (0, 0) and not self.get_realized():
             self._applied = (x, y)
 
@@ -194,6 +181,6 @@ class DockMixin:
         tx, ty = self._target_xy(w, h)
         self.poff = [x0 - tx, y0 - ty]
         self.pvel = [0.0, 0.0]
-        self._layout = None
+        self.placement.reset()
         self._place()
         self._kick()

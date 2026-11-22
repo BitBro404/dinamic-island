@@ -22,8 +22,9 @@ class NotificationsPage(Page):
         self.n_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.pack_start(self._scroller(self.n_list, 290), False, False, 0)
         foot = Gtk.Box()
-        foot.pack_end(button("chip", cb=self.core.notif.open_center, text="Centro de notificaciones"),
-                      False, False, 0)
+        if self.core.notif.has_center:
+            foot.pack_end(button("chip", cb=self.core.notif.open_center, text="Centro de notificaciones"),
+                          False, False, 0)
         box.pack_start(foot, False, False, 0)
         return box
 

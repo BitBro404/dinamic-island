@@ -2,6 +2,7 @@
 import math
 
 import cairo
+from gi.repository import Gdk
 
 from .widgets.art import vivid_color
 
@@ -15,6 +16,30 @@ class PaintMixin:
                    ("descarga", (0.04, 0.52, 1.0)), ("medio", (1.0, 0.62, 0.04)), ("captura", (0.6, 0.62, 0.7)))
 
     def _draw(self, _w, cr):
+        self._paint(cr)
+        self._update_shape()
+        return False
+
+    def _update_shape(self):
+        """Sin compositor (X11 con Openbox, LXDE…) no hay transparencia: lo que no se pinta saldría negro.
+        Entonces se recorta la ventana con la misma forma que se dibuja (una máscara de 1 bit)."""
+        if self.get_screen().is_composited():
+            if getattr(self, "_shape_key", None) is not None:
+                self.shape_combine_region(None)
+                self._shape_key = None
+            return
+        a = self.get_allocation()
+        key = (a.width, a.height, self.view, self.pad, len(self.bubbles), self._bub_ext, self.vertical)
+        if key == getattr(self, "_shape_key", None) or a.width < 2 or a.height < 2:
+            return
+        self._shape_key = key
+        mask = cairo.ImageSurface(cairo.FORMAT_A1, a.width, a.height)
+        cr = cairo.Context(mask)
+        cr.set_antialias(cairo.ANTIALIAS_NONE)
+        self._paint(cr)                      # la sombra (casi transparente) queda fuera de la máscara
+        self.shape_combine_region(Gdk.cairo_region_create_from_surface(mask))
+
+    def _paint(self, cr):
         cr.set_operator(cairo.OPERATOR_CLEAR)
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
@@ -117,7 +142,7 @@ class PaintMixin:
         self.outer.set_margin_top(pad[1])
         self.outer.set_margin_end(pad[2])
         self.outer.set_margin_bottom(pad[3])
-        self._layout = None
+        self.placement.reset()
         self._kick()
 
     def _set_glow(self, on):

@@ -75,8 +75,10 @@ def play_sound(*names):
     for n in names:
         snd = os.path.join("/usr/share/sounds/freedesktop/stereo", n)
         if os.path.exists(snd):
+            from ..platform.audio import play_argv
+            argv = play_argv(snd) or ["pw-play", snd]   # sin reproductor conocido, se intenta el de siempre
             try:
-                subprocess.Popen(["pw-play", snd], stderr=subprocess.DEVNULL)
+                subprocess.Popen(argv, stderr=subprocess.DEVNULL)
             except OSError:
                 pass
             return

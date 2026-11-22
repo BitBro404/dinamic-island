@@ -4,13 +4,19 @@ Esta guía recorre **todas** las funciones de la isla en el orden en que se van 
 Cada nivel da por hecho que los niveles anteriores ya están instalados. Puedes quedarte en cualquier nivel:
 la isla funciona igual y solo oculta o avisa en lo que le falte.
 
+Sirve para **cualquier escritorio Linux, Wayland o X11**: lo que cambia no es la isla, sino el método que
+usa cada función. `platform/` concentra esos métodos y `isla-dinamica --doctor` dice cuál se eligió en tu
+máquina. Para saber qué probar en cada escritorio, consulta
+**[ESCRITORIOS.md](ESCRITORIOS.md)**. Para instalar las dependencias de tu distro:
+`./install.sh --deps` (muestra la orden y pregunta antes de usar `sudo`).
+
 | Nivel | Qué añade | Dependencias nuevas |
 |---|---|---|
-| [0](#nivel-0--base-la-isla-misma) | La isla: píldora, panel, reloj, temporizador, pomodoro, recordatorios, sistema, descargas | Python 3, GTK3, gtk-layer-shell, sesión Wayland |
+| [0](#nivel-0--base-la-isla-misma) | La isla: píldora, panel, reloj, temporizador, pomodoro, recordatorios, sistema, descargas | Python 3, GTK3, Wayland con layer-shell o X11 |
 | [1](#nivel-1--servicios-del-escritorio-vienen-con-ubuntu) | Ajustes rápidos, música, batería, energía, USB, Wi‑Fi, Bluetooth, red | D-Bus del sistema: NetworkManager, BlueZ, UPower, logind… |
-| [2](#nivel-2--audio-pipewire) | Volumen, audio en vivo, llamadas, micrófono en uso, sonidos | PipeWire + utilidades |
-| [3](#nivel-3--notificaciones-de-budgie) | Avisos, No molestar, Teams y correo | Escritorio Budgie |
-| [4](#nivel-4--herramientas-wayland) | Portapapeles, capturas, grabar pantalla | wl-clipboard, grim, slurp, wf-recorder |
+| [2](#nivel-2--audio-pipewire) | Volumen, audio en vivo, llamadas, micrófono en uso, sonidos | PipeWire o PulseAudio + utilidades |
+| [3](#nivel-3--notificaciones-del-escritorio) | Avisos, No molestar, Teams y correo | Servidor de notificaciones del escritorio |
+| [4](#nivel-4--herramientas-de-escritorio) | Portapapeles, capturas, grabar pantalla | Según escritorio: wl-clipboard/grim/wf-recorder, maim/scrot/ffmpeg, portal o extensión |
 | [5](#nivel-5--internet) | Clima, dólar (TRM) | Conexión a Internet |
 | [6](#nivel-6--git) | Proyectos (estado de tus repos) | git |
 | [7](#nivel-7--github-gh) | Pull requests, CI y despliegues en vivo | gh + cuenta de GitHub |
@@ -26,11 +32,23 @@ Las funciones que se pueden apagar están en **⋯ Más → Funciones**. Todas v
 ### Dependencias
 
 ```bash
-sudo apt install python3 python3-gi gir1.2-gtk-3.0 gir1.2-gtklayershell-0.1 gir1.2-gdkpixbuf-2.0
+# Debian/Ubuntu: ./install.sh --deps calcula la orden para tu distro
+sudo apt install python3 python3-gi gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 gir1.2-gtklayershell-0.1
 ```
 
-- Sesión **Wayland** con un compositor que soporte `wlr-layer-shell` (labwc, sway, Hyprland…). Para
-  comprobarlo: `echo $XDG_SESSION_TYPE` debe decir `wayland`.
+| Familia | Paquetes base |
+|---|---|
+| apt | `python3-gi gir1.2-gtk-3.0 gir1.2-gdkpixbuf-2.0 gir1.2-gtklayershell-0.1` |
+| dnf | `python3-gobject gtk3 gtk-layer-shell` |
+| pacman | `python-gobject gtk3 gtk-layer-shell` |
+| zypper | `python3-gobject-Gdk gtk3 typelib-1_0-GtkLayerShell-0_1` |
+
+- Con **Wayland** y `wlr-layer-shell` (labwc, sway, Hyprland, KDE, Budgie…): ventana nativa en la capa
+  de superposición. `gir1.2-gtklayershell-0.1` puede faltar sin que la isla deje de arrancar.
+- Sin layer-shell (GNOME, Cinnamon, Weston…) o en **X11**: la isla relanza una vez con
+  `GDK_BACKEND=x11` y usa una ventana `DOCK`, siempre encima, sin barra de tareas y arrastrable.
+- En GNOME Wayland, la extensión de `extras/gnome-shell/` puede colocar la ventana desde el shell;
+  es provisional y se instala con `./install.sh --gnome-extension`.
 - Instalar y arrancar: `./install.sh` (ver el [README](../README.md#2-instalar-y-ejecutar)).
 
 ### La píldora
@@ -80,10 +98,10 @@ con un anillo de progreso cuando lo hay. Al pasar el ratón por una burbuja se a
 
 ---
 
-## Nivel 1 — Servicios del escritorio (vienen con Ubuntu)
+## Nivel 1 — Servicios del escritorio
 
-La isla habla por D-Bus con servicios que ya trae un Ubuntu de escritorio. Si alguno falta, su casilla no
-hace nada o no aparece.
+La isla habla por D-Bus con servicios que suelen venir con la distribución (o con la sesión Wayland/X11).
+Si alguno falta, su casilla no hace nada, se marca «No disponible» o no aparece; `--doctor` lo indica.
 
 ```bash
 sudo apt install network-manager rfkill iproute2 bluez upower power-profiles-daemon udisks2
@@ -100,39 +118,43 @@ sudo apt install network-manager rfkill iproute2 bluez upower power-profiles-dae
 | **Batería** | UPower | Porcentaje y estado en el inicio; avisos al conectar o desconectar el cargador |
 | **Cuidar batería** | UPower `EnableChargeThreshold` | Limita la carga (normalmente al 80 %) si el portátil lo soporta. Puede pedir contraseña |
 | **Ahorro** | power-profiles-daemon | Cambia al perfil de bajo consumo |
-| **Oscuro** | GSettings `org.gnome.desktop.interface` | Tema claro u oscuro |
-| **Luz nocturna** | GSettings de color | Activa o desactiva la luz nocturna |
-| **Despierto** | `org.gnome.SessionManager.Inhibit` | Impide que la pantalla se apague o el equipo se suspenda |
+| **Oscuro** | gsettings del escritorio o portal de color | Tema claro u oscuro; la casilla se oculta si no hay método |
+| **Luz nocturna** | gsettings de color, `gammastep` o `redshift` | Activa o desactiva la luz nocturna |
+| **Despierto** | SessionManager → `systemd-inhibit` | Impide que la pantalla se apague o el equipo se suspenda; el proceso inhibidor se termina al desactivarlo |
 | **USB** (Inicio → USB) | GIO / udisks2 | Medios extraíbles: abrirlos y expulsarlos |
-| **Energía** (Inicio → Energía) | logind (`org.freedesktop.login1`) | Bloquear, suspender, reiniciar y apagar, con confirmación |
-| **Ajustes del sistema** | `budgie-control-center` | Algunas páginas tienen un acceso directo a su panel de configuración |
+| **Energía** (Inicio → Energía) | logind (`org.freedesktop.login1`) | Bloquear, cerrar sesión, suspender, reiniciar y apagar, con confirmación; el cierre de sesión usa el SessionManager del escritorio o `loginctl` |
+| **Ajustes del sistema** | Centro de ajustes del escritorio | Algunas páginas tienen un acceso directo a su panel (wifi, Bluetooth, energía, pantalla); si no hay app, no aparece el acceso |
 | **Cámara en uso** | `/proc` | Punto verde en la píldora mientras una app usa la cámara (*Más → Funciones → Cámara y micrófono*) |
 
 ---
 
-## Nivel 2 — Audio (PipeWire)
+## Nivel 2 — Audio (PipeWire o PulseAudio)
 
 ```bash
-sudo apt install pipewire-pulse wireplumber pulseaudio-utils pipewire-bin
+# PipeWire: sudo apt install pipewire-pulse wireplumber pulseaudio-utils pipewire-bin
+# PulseAudio puro: sudo apt install pulseaudio pulseaudio-utils
 ```
 
 | Función | Herramienta | Qué hace |
 |---|---|---|
-| **Volumen** | `wpctl` | Barra de volumen en el inicio y rueda del ratón sobre la píldora. Muestra el nivel al cambiarlo |
+| **Volumen** | `wpctl` → `pactl` | Barra de volumen en el inicio y rueda del ratón sobre la píldora. Muestra el nivel al cambiarlo |
 | **Audio en vivo** | `parec`, `pactl` | Las barras del ecualizador siguen el sonido real y el borde brilla al ritmo |
 | **Llamadas** | `pactl` | Detecta llamadas (Teams, Meet, Zoom…) y muestra «En llamada» con su duración |
 | **Otras apps con audio** | `pactl` | Si suena algo que no es música (un vídeo, por ejemplo), lo indica |
 | **Micrófono en uso** | `pactl` | Punto naranja en la píldora y nombre de la app que lo usa |
-| **Sonidos** | `pw-play` | Sonido de la alarma y de los avisos |
+| **Sonidos** | `pw-play` → `paplay` → `canberra-gtk-play` | Sonido de la alarma y de los avisos |
 
 Para apagar el audio en vivo: *Más → Funciones → Audio en vivo*.
 
 ---
 
-## Nivel 3 — Notificaciones de Budgie
+## Nivel 3 — Notificaciones del escritorio
 
-La isla escucha al servidor de notificaciones de Budgie (`org.budgie_desktop.Notifications`). En otro
-escritorio, las funciones de este nivel quedan vacías.
+La isla monitoriza el bus `org.freedesktop.Notifications` (funciona con cualquier servidor que lo
+implemente) y, cuando está disponible, prefiere el adaptador nativo: Budgie, GNOME, KDE, XFCE, mako,
+SwayNC o dunst. No molestar se lee y se cambia con gsettings, `xfconf-query` o el comando del daemon.
+El centro de avisos usa el panel del escritorio o la extensión; si no hay ningún método, el botón se
+oculta (no se muestra un botón que no hace nada).
 
 | Función | Dónde | Qué hace |
 |---|---|---|
@@ -149,18 +171,19 @@ Las secciones **TEAMS** y **CORREO · OUTLOOK** se pliegan con un clic en el enc
 
 ---
 
-## Nivel 4 — Herramientas Wayland
+## Nivel 4 — Herramientas de escritorio
 
 ```bash
-sudo apt install wl-clipboard grim slurp wf-recorder
+# wlroots (Wayland): sudo apt install wl-clipboard grim slurp wf-recorder
+# X11:               sudo apt install x11-xserver-utils imagemagick scrot ffmpeg
 ```
 
-| Función | Herramienta | Qué hace |
+| Función | Métodos que prueba, en orden | Qué hace |
 |---|---|---|
-| **Copias** (Inicio → Copias) | `wl-paste --watch`, `wl-copy` | Historial del portapapeles: clic para volver a copiar y botón para borrar todo. Ignora lo que marcan los gestores de contraseñas |
-| **Recorte** (Inicio) | `grim` + `slurp` | Arrastras un rectángulo y se guarda en `~/Imágenes/Capturas/` |
-| **Pantalla** (Inicio) | `grim` | Captura la pantalla completa en la misma carpeta |
-| **Grabar** (Más → Grabar) | `wf-recorder` | Graba la pantalla completa o un área, con o sin audio, en `~/Vídeos/`. Mientras graba, la píldora muestra «Grabando» en rojo |
+| **Copias** (Inicio → Copias) | `wl-paste --watch` → `Gtk.Clipboard` (X11/XWayland) → portal | Historial del portapapeles: clic para volver a copiar y botón para borrar todo. Ignora lo que marcan los gestores de contraseñas |
+| **Recorte** (Inicio) | `grim`+`slurp`, `spectacle`, extensión, `maim`, `scrot`, portal | Arrastras un rectángulo y se guarda en `~/Imágenes/Capturas/` |
+| **Pantalla** (Inicio) | Los mismos, con pantalla completa | Captura la pantalla en la misma carpeta |
+| **Grabar** (Más → Grabar) | `wf-recorder`, `ffmpeg` x11grab, extensión, portal | Graba la pantalla completa o un área, con o sin audio, en `~/Vídeos/`. Mientras graba, la píldora muestra «Grabando» en rojo. Si no hay método, la página se oculta |
 
 ---
 
@@ -231,8 +254,9 @@ Necesita una webcam en `/dev/video0`. Viene **apagada**: actívala con la casill
 2. Desde ese momento, cada 10 s la isla abre la cámara, busca una cara (OpenCV) y la vuelve a cerrar.
 3. Si nadie aparece durante **N minutos** (5 por defecto), la píldora muestra *«Nadie frente a la
    pantalla»* con una cuenta atrás de 30 s. Mover el ratón la cancela.
-4. Al terminar la cuenta atrás, bloquea con el bloqueo de Budgie (o `loginctl lock-session`) y apaga la
-   pantalla con `wlopm --off`. Al volver a usar el teclado o el ratón, la pantalla se enciende.
+4. Al terminar la cuenta atrás, bloquea con el método del escritorio (nativo o `loginctl lock-session`)
+   y apaga la pantalla con el suyo (`wlopm --off`, `xset dpms force off`…). Solo apaga la pantalla si el
+   bloqueo aceptó la orden. Al volver a usar el teclado o el ratón, se enciende.
 
 **Nunca bloquea:**
 - durante una llamada (requiere el nivel 2);

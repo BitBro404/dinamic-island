@@ -1,7 +1,8 @@
 """Batería, límite de carga y energía."""
 from gi.repository import GLib, Gio
 
-from ..util.proc import run
+from ..platform.lock import Locker
+from ..platform.session import Session
 
 
 class ChargeLimit:
@@ -113,19 +114,22 @@ class Battery:
 
 class Power:
     """Acciones de energía: bloquear, cerrar sesión, suspender, reiniciar y apagar."""
-    def __init__(self, sysbus, bus):
+    def __init__(self, sysbus, bus, desktop=None, session=None):
         self.sysbus, self.bus = sysbus, bus
+        self.locker = Locker(bus, desktop=desktop)
+        self.session = session or Session(bus, lambda: None, desktop=desktop)
 
     def _login1(self, method):
         self.sysbus.call("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
                          method, GLib.Variant("(b)", (True,)), None, 0, 10000, None, lambda *_: None)
 
     def lock(self):
-        run(["loginctl", "lock-session"])
+        """False si ningún bloqueador aceptó la orden (quien llama decide qué hacer)."""
+        return self.locker.lock()
 
     def logout(self):
-        self.bus.call("org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager",
-                      "Logout", GLib.Variant("(u)", (1,)), None, 0, 5000, None, lambda *_: None)
+        """Cierra sesión con el método del escritorio (GNOME, KDE, XFCE… o loginctl)."""
+        return self.session.logout()
 
     def suspend(self):
         self._login1("Suspend")

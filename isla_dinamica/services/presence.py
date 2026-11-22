@@ -1,12 +1,12 @@
 """Sensor de presencia: si no hay nadie frente a la cámara ni teclado/ratón, bloquear y apagar la pantalla."""
 import os
-import subprocess
 import threading
 import time
 
 from gi.repository import GLib, Gio
 
-from ..util.proc import dbg, tied
+from ..platform.idle import IdleWatch  # noqa: F401  (se reexporta: tests y Presence la usan desde aquí)
+from ..util.proc import dbg
 
 CHECK_EVERY = 10          # segundos entre revisiones de la cámara mientras estás inactivo
 _HELD = ("paused", "off_hours")
@@ -107,52 +107,6 @@ class PresenceLogic:
         return max(0, self.minutes * 60 - (now - self._absent_from()))
 
 
-class IdleWatch:
-    """Avisa cuando no hay teclado/ratón durante `after` segundos y cuando vuelve (swayidle propio,
-    protocolo ext-idle-notify de labwc). Independiente del swayidle del sistema."""
-
-    def __init__(self, after, on_idle, on_active):
-        self.after, self.on_idle, self.on_active = after, on_idle, on_active
-        self.proc, self.error, self._restart = None, None, False
-        threading.Thread(target=self._loop, daemon=True).start()
-
-    def set_after(self, after):
-        """Cambia el umbral: reinicia swayidle con el nuevo valor."""
-        self.after = after
-        self._restart = True
-        if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
-
-    @staticmethod
-    def command(after):
-        return ["swayidle", "-w", "timeout", str(int(after)), "echo idle", "resume", "echo active"]
-
-    @staticmethod
-    def parse_line(line):
-        word = (line or "").strip()
-        return word if word in ("idle", "active") else None
-
-    def _loop(self):
-        while True:
-            try:
-                self.proc = subprocess.Popen(tied(self.command(self.after)), stdout=subprocess.PIPE,
-                                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
-                self.error = None
-                for line in self.proc.stdout:
-                    kind = self.parse_line(line)
-                    if kind == "idle":
-                        self.on_idle(time.monotonic())
-                    elif kind == "active":
-                        self.on_active(time.monotonic())
-                self.proc.wait()
-            except OSError as e:
-                self.error = f"No se pudo lanzar swayidle: {e}"
-            self.on_active(time.monotonic())     # sin datos fiables: tratar como si hubiera input
-            if not self._restart:
-                time.sleep(5)
-            self._restart = False
-
-
 class FaceDetector:
     """¿Hay una cara frente a la cámara? Todo en memoria: ninguna imagen se guarda.
     detect() → True / False, o None si no se puede saber (sin OpenCV, cámara ocupada o con error)."""
@@ -231,27 +185,25 @@ class FaceDetector:
             cap.release()
 
 
-def _budgie_lock():
-    """Bloquea la sesión. Devuelve True solo si algún bloqueador aceptó la orden: el de Budgie por D-Bus o,
-    si no está, `loginctl lock-session`. Con False, quien llama NO debe apagar la pantalla."""
-    try:
-        Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
-            "org.buddiesofbudgie.BudgieScreenlock", "/org/buddiesofbudgie/Screenlock",
-            "org.buddiesofbudgie.BudgieScreenlock", "Lock", None, None, 0, 5000, None)
-        return True
-    except GLib.Error:
-        pass
-    try:
-        return subprocess.run(["loginctl", "lock-session"], timeout=5, check=False).returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
+def _session_bus():
+    return Gio.bus_get_sync(Gio.BusType.SESSION, None)
 
 
-DEFAULT_ACTIONS = {
-    "lock": _budgie_lock,
-    "screen_off": lambda: subprocess.run(["wlopm", "--off", "*"], timeout=5, check=False),
-    "screen_on": lambda: subprocess.run(["wlopm", "--on", "*"], timeout=5, check=False),
-}
+def _platform_action(kind):
+    """Acción por defecto: la cadena de `platform/` elige el método según el escritorio."""
+    from ..platform.lock import Locker
+    from ..platform.screen import Screen
+
+    def action():
+        bus = _session_bus()
+        if kind == "lock":
+            return Locker(bus).lock()
+        screen = Screen(bus)
+        return screen.off() if kind == "screen_off" else screen.on()
+    return action
+
+
+DEFAULT_ACTIONS = {k: _platform_action(k) for k in ("lock", "screen_off", "screen_on")}
 
 
 class Presence:
@@ -260,7 +212,7 @@ class Presence:
 
     def __init__(self, config, on_change, on_lock, enabled, in_call=lambda: False, detector=None,
                  actions=None, start=True, clock=time.monotonic, wall=None, epoch=time.time,
-                 camera_busy=None, post=None):
+                 camera_busy=None, post=None, desktop=None, bus=None):
         from datetime import datetime
         from .privacy import camera_users
         self.cfg, self.on_change, self.on_lock = config, on_change, on_lock
@@ -277,7 +229,7 @@ class Presence:
         self.lock_failed = False      # el último intento de bloqueo falló (se limpia al volver a usar el equipo)
         self._sync()
         if start:
-            self.idle = IdleWatch(self.check_after(), self._idle, self._active)
+            self.idle = IdleWatch(self.check_after(), self._idle, self._active, desktop=desktop, bus=bus)
             threading.Thread(target=self._loop, daemon=True).start()
 
     @property

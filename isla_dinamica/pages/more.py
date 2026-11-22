@@ -3,7 +3,7 @@ from gi.repository import Gtk
 
 from ..ui.gtk import button, icon, label
 from .base import Page
-from .registry import FEATURES, page
+from .registry import FEATURES, page, visible
 
 
 class MorePage(Page):
@@ -59,4 +59,4 @@ class MorePage(Page):
         for key, sw in self.more_switches.items():
             self._set_switch(sw, self.core.feature(key))
         for b, t in self.more_tools:
-            b.set_visible(not t["feature"] or self.core.feature(t["feature"]))
+            b.set_visible(visible(t, self.core))

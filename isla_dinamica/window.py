@@ -1,7 +1,7 @@
 """La ventana de la isla: forma, animación, arrastre, eventos y vista compacta."""
 import time
 
-from gi.repository import GLib, Gdk, Gtk, GtkLayerShell
+from gi.repository import GLib, Gdk, Gtk
 
 from .services.media import Volume
 from .ui.style import BUB_GAP, BUB_MAX, H
@@ -14,6 +14,7 @@ from .ui.dock import DockMixin
 from .ui.paint import PaintMixin
 from .ui.bubbles import BubblesMixin
 from .ui.pill_view import PillViewMixin
+from .ui.placement import BACKENDS
 
 
 class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Window):
@@ -28,11 +29,8 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
         if visual:
             self.set_visual(visual)
 
-        GtkLayerShell.init_for_window(self)
-        GtkLayerShell.set_namespace(self, "isla-dinamica")
-        GtkLayerShell.set_monitor(self, monitor)
-        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
-        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        # cómo se pone encima de todo depende del escritorio (layer-shell, X11, extensión de GNOME…)
+        self.placement = BACKENDS[core.window_backend](self, monitor)
 
         self.hover = False
         self._hover_src = None
@@ -56,7 +54,6 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
         self._applied = (0, 0)      # posición ya aplicada por el compositor
         self._nav_t = 0.0           # cuándo se cambió de página por última vez
         self._inside = False        # ratón dentro de la ventana (según enter/leave)
-        self._layout = None
         self._acts = []             # actividades en curso (grabación, descarga, música, pomodoro…)
         self._shown = set()         # las que muestra la píldora; el resto va en burbujas
         self.bubbles = []           # actividades que se ven como burbujas
@@ -81,6 +78,10 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
         self.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
         self.connect("enter-notify-event", self._on_enter)
         self.connect("leave-notify-event", self._on_leave)
+        # en X11 algunos gestores no dan el teclado a una ventana DOCK: se pide al hacer clic (campo de
+        # contraseña Wi-Fi, búsqueda del clima). En layer-shell no hace nada (ON_DEMAND ya lo hace).
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.connect("button-press-event", lambda *_: self.placement.focus() or False)
         ev.connect("button-release-event", self._on_click)
         self.add(ev)
 

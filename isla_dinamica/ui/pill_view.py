@@ -8,6 +8,7 @@ from ..services.downloads import fmt_size
 from ..services.pomodoro import Pomodoro
 from ..util.fmt import fmt_secs, hm
 from .gtk import button, icon, label, set_accent
+from .gtk import icon_name as resolve_name   # «icon_name» ya es nombre de variable aquí
 from .style import H, W_CARD, W_EXP
 from .widgets.art import Art, GREEN
 from .widgets.audio import Equalizer
@@ -152,7 +153,7 @@ class PillViewMixin:
         if wkind:
             self.c_wicon.set_kind(wkind)
         if left == "icon":
-            self.c_icon.set_from_icon_name(icon_name, Gtk.IconSize.MENU)
+            self.c_icon.set_from_icon_name(resolve_name(icon_name), Gtk.IconSize.MENU)
             set_accent(self.c_icon, accent)
         if left:
             self.c_left.set_visible_child_name(left)
@@ -292,7 +293,7 @@ class PillViewMixin:
                 self.k_art.set_pixbuf(ev["pixbuf"])
                 self.k_left.set_visible_child_name("art")
             else:
-                self.k_icon.set_from_icon_name(ev.get("icon") or "dialog-information-symbolic", Gtk.IconSize.DND)
+                self.k_icon.set_from_icon_name(resolve_name(ev.get("icon") or "dialog-information-symbolic"), Gtk.IconSize.DND)
                 self.k_left.set_visible_child_name("icon")
             self.k_app.set_text(f"{ev.get('app', '')}  ·  {hm()}".lstrip(" ·"))
             rgb = self._card_color(ev)

@@ -1,9 +1,9 @@
 """Música (MPRIS) y volumen."""
-import re
 import subprocess
 
 from gi.repository import GLib, Gio
 
+from ..platform.audio import parse_volume, read_command, set_argv, step_argv, toggle_mute_argv
 from ..util.proc import run, tied
 
 
@@ -68,15 +68,6 @@ class Media:
                       Gio.DBusCallFlags.NONE, 1000, None, None, None)
 
 
-VOLUME_CMD = ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]
-
-
-def parse_volume(out):
-    """«Volume: 0.45 [MUTED]» → (0.45, True). Sin número → (0.0, False)."""
-    m = re.search(r"([\d.]+)", out or "")
-    return (float(m.group(1)) if m else 0.0), ("MUTED" in (out or ""))
-
-
 class Volume:
     """Volumen de la salida por defecto (PipeWire): escucha `pactl subscribe` y relee con wpctl al cambiar."""
     def __init__(self, on_change):
@@ -95,8 +86,11 @@ class Volume:
     @staticmethod
     def read():
         """Lectura síncrona: solo al arrancar. Los cambios se leen con `run` (sin bloquear la interfaz)."""
+        argv = read_command()
+        if not argv:
+            return 0.0, False
         try:
-            return parse_volume(subprocess.run(VOLUME_CMD, capture_output=True, text=True, timeout=1).stdout)
+            return parse_volume(subprocess.run(argv, capture_output=True, text=True, timeout=1).stdout)
         except (OSError, subprocess.SubprocessError):
             return 0.0, False
 
@@ -114,7 +108,9 @@ class Volume:
 
     def _check(self):
         self._pending = None
-        run(VOLUME_CMD, self._got)
+        argv = read_command()
+        if argv:
+            run(argv, self._got)
         return False
 
     def _got(self, ok, out, _err):
@@ -124,13 +120,18 @@ class Volume:
             self.on_change(v, m)
 
     @staticmethod
-    def step(up):
-        subprocess.Popen(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+" if up else "5%-"])
+    def _popen(argv):
+        if argv:
+            subprocess.Popen(argv)
 
-    @staticmethod
-    def set(value):
-        subprocess.Popen(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", f"{value:.2f}"])
+    @classmethod
+    def step(cls, up):
+        cls._popen(step_argv(up))
 
-    @staticmethod
-    def toggle_mute():
-        subprocess.Popen(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+    @classmethod
+    def set(cls, value):
+        cls._popen(set_argv(value))
+
+    @classmethod
+    def toggle_mute(cls):
+        cls._popen(toggle_mute_argv())

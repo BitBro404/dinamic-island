@@ -16,7 +16,8 @@ class RecordPage(Page):
     PAGES = {
         "record": page("_build_record", "_fill_record", ("rec",)),
     }
-    TOOLS = (tool("media-record-symbolic", "Grabar", "Grabar la pantalla en video", "record"),)
+    TOOLS = (tool("media-record-symbolic", "Grabar", "Grabar la pantalla en video", "record",
+                  available=lambda core: core.recorder.available),)
 
     def _build_record(self):
         box = self._page("Grabar pantalla")
@@ -79,7 +80,7 @@ class RecordPage(Page):
         self.rc_opts.set_visible(rec.available and not rec.active)
         self.rc_stop.set_visible(rec.active)
         if not rec.available:
-            self.rc_state.set_text("Falta wf-recorder: sudo apt install wf-recorder")
+            self.rc_state.set_text("Sin método de grabación en este escritorio (ver --deps)")
             set_accent(self.rc_state, "orange")
         elif rec.active:
             self.rc_state.set_text(f"Grabando · {fmt_secs(rec.elapsed())}")

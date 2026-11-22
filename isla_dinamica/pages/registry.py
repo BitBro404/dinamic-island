@@ -23,7 +23,14 @@ def feature(key, title, desc):
     FEATURES.append({"key": key, "title": title, "desc": desc})
 
 
-def tool(icon_name, text, tip, target, feature=None):
+def tool(icon_name, text, tip, target, feature=None, available=None):
     """Un acceso en la cuadrícula «Herramientas» de la página «Más».
-    Se declara en la clase de la página: TOOLS = (tool(...),)"""
-    return {"icon": icon_name, "text": text, "tip": tip, "page": target, "feature": feature}
+    `available(core)` permite ocultar la herramienta si su función no tiene método en este escritorio."""
+    return {"icon": icon_name, "text": text, "tip": tip, "page": target,
+            "feature": feature, "available": available}
+
+
+def visible(t, core):
+    """¿Se muestra este acceso? Debe estar activa su función (si tiene) y tener método (si lo exige)."""
+    return (not t["feature"] or core.feature(t["feature"])) and \
+           (not t["available"] or bool(t["available"](core)))

@@ -2,6 +2,7 @@
 from gi.repository import Gtk
 
 from ..gtk import button, icon, label, set_class
+from ..gtk import icon_name as resolve   # «icon_name» ya es un parámetro aquí
 
 
 # ───────────────────────────── casillas de ajustes rápidos ─────────────────────────────
@@ -26,6 +27,6 @@ class Tile(Gtk.Box):
     def set(self, on, sub="", icon_name=None):
         set_class(self.btn, "on", on)
         if icon_name:
-            self.img.set_from_icon_name(icon_name, Gtk.IconSize.LARGE_TOOLBAR)
+            self.img.set_from_icon_name(resolve(icon_name), Gtk.IconSize.LARGE_TOOLBAR)
             self.img.set_pixel_size(24)
         self.sub.set_text(sub)

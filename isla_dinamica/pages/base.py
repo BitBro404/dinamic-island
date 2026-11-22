@@ -54,8 +54,13 @@ class Page:
         fn()
 
     def _settings(self, panel):
-        """Abre un panel de la configuración del sistema."""
-        subprocess.Popen(["budgie-control-center", panel], stderr=subprocess.DEVNULL)
+        """Abre un panel de la configuración del sistema con la app de este escritorio."""
+        from ..platform.apps import settings_command
+        from ..platform.chain import Tools
+
+        argv = settings_command(panel, Tools(), self.core.desktop)
+        if argv:
+            subprocess.Popen(argv, stderr=subprocess.DEVNULL)
         self.host._set_hover(False)
 
     def _copy(self, text):

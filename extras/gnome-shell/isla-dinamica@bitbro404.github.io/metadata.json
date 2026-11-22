@@ -1,0 +1,9 @@
+{
+  "_generated": "Extensión provisional de isla dinámica",
+  "name": "Isla dinámica — puente de escritorio",
+  "description": "Expone a la isla el centro de avisos, capturas, grabación, inactividad y ahorro de energía de GNOME Shell.",
+  "uuid": "isla-dinamica@bitbro404.github.io",
+  "shell-version": ["45", "46", "47", "48"],
+  "version": 1,
+  "url": "https://github.com/bitbro404/isla-dinamica"
+}
