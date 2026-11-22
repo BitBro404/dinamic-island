@@ -15,6 +15,7 @@ SKIP = {"node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", 
 DEPTH = 4
 EVERY = 60            # estado local
 FETCH_EVERY = 15 * 60  # git fetch en segundo plano (para saber si estás atrás)
+AHEAD_GRACE = 15 * 60  # commits locales sin subir durante este tiempo → aviso (una vez)
 GIT_ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="true", LC_ALL="C",
                GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=8")
 
@@ -118,6 +119,8 @@ class GitWatch:
         self._busy = False
         self._last_fetch = 0.0
         self._behind = {}
+        self._ahead_since = {}     # repo → desde cuándo tiene commits sin subir
+        self._ahead_warned = set()
         self.poll = Poller(self._kick).soon(6).every(EVERY)
 
     @property
@@ -182,6 +185,18 @@ class GitWatch:
                 out.append({"path": r, "name": os.path.basename(r), "error": str(e)})
         GLib.idle_add(self._apply, out, fetch)
 
+    def _check_ahead(self, s, now=None):
+        """Avisa una vez cuando un repo lleva AHEAD_GRACE con commits sin subir; se rearma al sincronizar."""
+        path, now = s["path"], time.time() if now is None else now
+        if s.get("ahead", 0) > 0 and s.get("upstream"):
+            since = self._ahead_since.setdefault(path, now)
+            if now - since >= AHEAD_GRACE and path not in self._ahead_warned:
+                self._ahead_warned.add(path)
+                self.on_event("ahead", s)
+        else:
+            self._ahead_since.pop(path, None)
+            self._ahead_warned.discard(path)
+
     def _apply(self, repos, fetched):
         self._busy = False
         if fetched:
@@ -191,6 +206,7 @@ class GitWatch:
             if old is not None and behind > old:
                 self.on_event("behind", s)
             self._behind[s["path"]] = behind
+            self._check_ahead(s)
         repos.sort(key=lambda s: (s.get("error") is None and not (changes(s) or s["ahead"] or s["behind"]
                                                                    or s["stash"]), s["name"].lower()))
         self.repos = repos

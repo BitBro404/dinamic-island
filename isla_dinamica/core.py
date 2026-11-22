@@ -229,8 +229,22 @@ class Core:
             self.show_event(9.0, kind="card", pixbuf=n["pixbuf"], icon=n["icon"], app=n["app"],
                             title=n["summary"], body=n["body"], action=lambda n=n: self.open_notif(n))
 
+    def alert(self, app, icon, title, body="", action=None, secs=10.0):
+        """Aviso propio de la isla (GitHub, git…): tarjeta visible y queda en la lista de notificaciones."""
+        n = {"id": None, "app": app, "icon": icon, "pixbuf": None, "summary": title, "body": body,
+             "time": time.time(), "urgent": False, "desktop": "", "ms": None, "action": action}
+        self.notifs.insert(0, n)
+        del self.notifs[60:]
+        self.unread += 1
+        self.changed("notifs")
+        if not self.notif.dnd:
+            self.show_event(secs, kind="card", icon=icon, app=app, title=title, body=body,
+                            action=lambda: self.open_notif(n))
+
     def open_notif(self, n):
-        if n.get("ms") == "teams":
+        if n.get("action"):
+            n["action"]()
+        elif n.get("ms") == "teams":
             self.open_teams()
         elif n.get("ms") == "outlook":
             open_uri(OUTLOOK_URL)

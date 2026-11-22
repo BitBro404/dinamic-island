@@ -8,6 +8,39 @@ from ..util.fmt import ago_long, iso_ts
 from ..util.proc import dbg, run
 from .poller import Poller
 
+KINDS = {"PullRequest": "PR", "Issue": "Issue", "Commit": "Commit", "Release": "Release",
+         "Discussion": "Discusión", "CheckSuite": "CI", "WorkflowRun": "CI"}
+REASONS = {"review_requested": "te piden revisión", "mention": "te mencionaron", "team_mention": "mencionan a tu equipo",
+           "assign": "te asignaron", "author": "novedad en lo tuyo", "comment": "nuevo comentario",
+           "state_change": "cambió de estado", "ci_activity": "actividad de CI", "subscribed": "repo que sigues",
+           "manual": "hilo que sigues", "security_alert": "alerta de seguridad", "invitation": "invitación"}
+
+
+def html_url(api_url, repo):
+    """URL de la web a partir de la URL de la API de una notificación (las PR usan /pull/, no /pulls/)."""
+    prefix = "https://api.github.com/repos/"
+    if not api_url or not api_url.startswith(prefix):
+        return f"https://github.com/{repo}" if repo else "https://github.com/notifications"
+    path = api_url[len(prefix):]
+    parts = path.split("/")
+    if len(parts) >= 4 and parts[2] == "pulls":
+        parts[2] = "pull"
+    elif len(parts) >= 4 and parts[2] == "commits":
+        parts[2] = "commit"
+    elif len(parts) >= 4 and parts[2] == "releases":
+        return f"https://github.com/{parts[0]}/{parts[1]}/releases"
+    return "https://github.com/" + "/".join(parts)
+
+
+def inbox_item(raw):
+    """Una notificación de la API de GitHub → {key, title, repo, kind, reason, url, updated}."""
+    subj = raw.get("subject") or {}
+    repo = (raw.get("repository") or {}).get("full_name", "")
+    return {"key": f"{raw.get('id')}@{raw.get('updated_at')}", "title": subj.get("title") or "(sin título)",
+            "repo": repo, "kind": KINDS.get(subj.get("type"), subj.get("type") or ""),
+            "reason": REASONS.get(raw.get("reason"), raw.get("reason") or ""),
+            "url": html_url(subj.get("url"), repo), "updated": iso_ts(raw.get("updated_at"))}
+
 
 class GitHub:
     """PR de GitHub usando la sesión de la herramienta `gh` (gh auth login). Se actualiza cada 3 minutos."""
@@ -22,6 +55,9 @@ class GitHub:
         self.updated, self.loading = 0.0, False
         self._known = None        # PR con revisión pedida ya vistas (None = primera carga, no avisar)
         self._prev = {}           # estado anterior de mis PR (CI y revisión)
+        self._merged = None       # PR mías ya vistas fusionadas (None = primera carga)
+        self._seen = None         # notificaciones de la bandeja ya avisadas («id@fecha»)
+        self.inbox = []           # bandeja de GitHub sin leer
         self.refresh()
         self.poll = Poller(self.refresh).every(180)
 
@@ -91,6 +127,35 @@ class GitHub:
         self.merged = sorted(merged, key=lambda p: -p["merged"])
         self._notify_changes()
         self.on_change()
+        run(["gh", "api", "notifications?per_page=30"], self._got_inbox)
+
+    def _got_inbox(self, ok, out, err):
+        """Bandeja de GitHub: PR nuevas, comentarios, menciones, issues, releases… de los repos que sigues."""
+        if not ok:
+            dbg("github inbox error:", err.strip()[:200])
+            return
+        try:
+            items = [inbox_item(r) for r in json.loads(out) if r.get("unread", True)]
+        except (ValueError, TypeError, AttributeError) as e:
+            dbg("github inbox error:", e)
+            return
+        self.inbox = sorted(items, key=lambda i: -(i["updated"] or 0))
+        self._notify_inbox()
+        self.on_change()
+
+    def _notify_inbox(self):
+        keys = {i["key"] for i in self.inbox}
+        if self._seen is None:                  # al arrancar: un resumen, no una alerta por cada una
+            if self.inbox:
+                self.on_event("inbox_summary", {"count": len(self.inbox), "items": self.inbox})
+        else:
+            new = [i for i in self.inbox if i["key"] not in self._seen]
+            if len(new) > 5:                     # muchas de golpe: un resumen
+                self.on_event("inbox_summary", {"count": len(new), "items": new})
+            else:
+                for i in reversed(new):          # la más reciente queda arriba
+                    self.on_event("inbox", i)
+        self._seen = (self._seen or set()) | keys
 
     def _notify_changes(self):
         # primero CI y revisiones de mis PR; al final las revisiones pedidas, que son lo más importante
@@ -102,6 +167,12 @@ class GitHub:
                 if p["review"] != old["review"] and p["review"] in ("APPROVED", "CHANGES_REQUESTED"):
                     self.on_event("decision", p)
         self._prev = {p["id"]: {"ci": p["ci"], "review": p["review"]} for p in self.mine}
+        merged = {p["id"] for p in self.merged}
+        if self._merged is not None:
+            for p in self.merged:
+                if p["id"] not in self._merged:
+                    self.on_event("merged", p)
+        self._merged = merged
         ids = {p["id"] for p in self.review}
         if self._known is not None:
             for p in self.review:

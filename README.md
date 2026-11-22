@@ -131,12 +131,12 @@ donde puedes activar o desactivar cada función. Los cambios se guardan en
 
 | Función | Qué necesita para funcionar |
 |---|---|
-| **GitHub** | `gh auth login`. Muestra las revisiones pedidas, tus PR abiertas y las fusionadas en 7 días, y avisa del CI. Consulta cada 3 min. |
+| **GitHub** | `gh auth login`. Muestra las revisiones pedidas, tus PR abiertas y las fusionadas en 7 días. Consulta cada 3 min y avisa con una alerta, que queda en Notificaciones, de: cada novedad de tu bandeja de GitHub (PR nuevas, comentarios, menciones, issues, releases de los repos que sigues), CI terminado, revisiones aprobadas o con cambios y PR tuyas fusionadas. Al arrancar da un solo resumen de lo que haya sin leer. |
 | **Despliegues en vivo** | Lo mismo que GitHub. Lee los *deployments* que Railway u otras plataformas reportan a GitHub en tus repos con actividad de las últimas 3 semanas. Se ven en la pestaña GitHub. |
 | **Teams y correo** | Teams (app o PWA de Chrome) y Outlook web abierto en Chrome, con las notificaciones permitidas. La isla lee esas notificaciones; no usa la API de Microsoft. |
 | **Clima** | Nada. Toma la ciudad de tu zona horaria; puedes cambiarla en la página Clima. |
 | **Dólar (TRM)** | Internet. |
-| **Proyectos (git)** | Las carpetas con repos que vigila. Por defecto es `~/Documentos/WM`; se pueden añadir más desde la página Proyectos. |
+| **Proyectos (git)** | Las carpetas con repos que vigila. Por defecto es `~/Documentos/WM`; se pueden añadir más desde la página Proyectos. Avisa con una alerta cuando llegan commits nuevos al remoto (pull pendiente) y cuando un repo lleva 15 min con commits sin subir (push pendiente). |
 | **Presencia (cámara)** | Paquetes OpenCV, `swayidle` y `wlopm`. Viene **apagada**: actívala en Funciones o con su casilla del inicio. Más detalles abajo. |
 | **Audio en vivo / Cámara y micrófono** | PipeWire. |
 | **Red y VPN / Monitor del sistema / Descargas / Servidores locales / Recordatorios** | Nada más. |

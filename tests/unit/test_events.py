@@ -21,6 +21,10 @@ class FakeCore:
     def open_github(self, url=None):
         self.opened.append(url)
 
+    def alert(self, app, icon, title, body="", action=None, secs=10.0):
+        self.shown.append({"kind": "alert", "app": app, "icon": icon, "title": title, "body": body,
+                           "action": action, "secs": secs})
+
     def feature(self, name):
         return True
 
@@ -59,8 +63,25 @@ class EventRouterTest(unittest.TestCase):
         self.assertEqual(self.core.opened, ["https://github.com/o/r/pull/3"])
 
     def test_github_ci(self):
-        self.ev.github("ci", {"repo": "o/r", "num": 3, "ci": "FAILURE"})
-        self.assertEqual((self.last()["accent"], self.last()["text"]), ("red", "CI falló · o/r#3"))
+        self.ev.github("ci", {"repo": "o/r", "num": 3, "ci": "FAILURE", "url": "u"})
+        self.assertEqual((self.last()["kind"], self.last()["title"]), ("alert", "CI falló · o/r#3"))
+
+    def test_github_inbox_alert_opens_thread(self):
+        self.ev.github("inbox", {"kind": "PR", "title": "Nueva PR", "repo": "o/r", "reason": "repo que sigues",
+                                 "url": "https://github.com/o/r/pull/9"})
+        e = self.last()
+        self.assertEqual((e["app"], e["title"], e["body"]), ("GitHub · PR", "Nueva PR", "o/r · repo que sigues"))
+        e["action"]()
+        self.assertEqual(self.core.opened, ["https://github.com/o/r/pull/9"])
+
+    def test_github_inbox_summary(self):
+        items = [{"repo": r} for r in ("a/1", "a/2", "a/3", "a/4", "a/1")]
+        self.ev.github("inbox_summary", {"count": 5, "items": items})
+        self.assertEqual((self.last()["title"], self.last()["body"]), ("5 novedades sin leer", "a/1, a/2, a/3 y 1 más"))
+
+    def test_github_merged(self):
+        self.ev.github("merged", {"repo": "o/r", "num": 4, "title": "Feat", "url": "u"})
+        self.assertEqual((self.last()["app"], self.last()["body"]), ("GitHub · PR fusionada", "o/r#4"))
 
     def test_battery_full_respects_charge_limit(self):
         self.ev.battery("full", 80)
@@ -91,10 +112,14 @@ class EventRouterTest(unittest.TestCase):
         self.assertEqual(self.last()["text"], "Lluvia hacia las 15:00")
 
     def test_git_plural(self):
-        self.ev.git("behind", {"name": "api", "behind": 1, "upstream": "origin/main"})
-        self.assertEqual(self.last()["text"], "api: 1 commit nuevo en origin/main")
-        self.ev.git("behind", {"name": "api", "behind": 3, "upstream": "origin/main"})
-        self.assertEqual(self.last()["text"], "api: 3 commits nuevos en origin/main")
+        self.ev.git("behind", {"name": "api", "behind": 1, "upstream": "origin/main", "path": "/r"})
+        self.assertEqual(self.last()["title"], "1 commit nuevo en origin/main")
+        self.ev.git("behind", {"name": "api", "behind": 3, "upstream": "origin/main", "path": "/r"})
+        self.assertEqual(self.last()["title"], "3 commits nuevos en origin/main")
+
+    def test_git_ahead(self):
+        self.ev.git("ahead", {"name": "api", "ahead": 2, "branch": "main", "upstream": "origin/main", "path": "/r"})
+        self.assertEqual((self.last()["app"], self.last()["title"]), ("Git · api", "2 commits sin subir"))
 
 
 if __name__ == "__main__":

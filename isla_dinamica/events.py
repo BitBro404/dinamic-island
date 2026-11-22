@@ -83,9 +83,18 @@ class EventRouter:
                       text=f"{who} está usando el micrófono")
 
     def git(self, kind, s):
-        n = s["behind"]
-        self.show(5.0, kind="pill", icon="emblem-synchronizing-symbolic", accent="blue",
-                  text=f"{s['name']}: {n} commit{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''} en {s['upstream']}")
+        """Commits por sincronizar en los repos vigilados: por bajar (behind) o sin subir (ahead)."""
+        if kind == "ahead":
+            n = s["ahead"]
+            self.core.alert(f"Git · {s['name']}", "go-up-symbolic",
+                            f"{n} commit{'s' if n != 1 else ''} sin subir",
+                            f"{s['branch']} → {s['upstream']} · haz push para sincronizar",
+                            action=lambda: open_uri("file://" + s["path"]))
+        else:
+            n = s["behind"]
+            self.core.alert(f"Git · {s['name']}", "emblem-synchronizing-symbolic",
+                            f"{n} commit{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''} en {s['upstream']}",
+                            "Haz pull para sincronizar", action=lambda: open_uri("file://" + s["path"]))
 
     def reminder(self, r, late=False):
         if not self.core.feature("reminders"):
@@ -162,20 +171,34 @@ class EventRouter:
                       title=where, body=d["commit"] or d["repo"], action=lambda: open_web(d["url"]))
 
     def github(self, kind, p):
+        """Novedades de GitHub: cada una queda como alerta en la lista de notificaciones de la isla."""
+        if kind == "inbox":
+            self.core.alert(f"GitHub · {p['kind']}".rstrip(" ·"), GITHUB_APP, p["title"],
+                            f"{p['repo']} · {p['reason']}".strip(" ·"),
+                            action=lambda: self.core.open_github(p["url"]))
+            return
+        if kind == "inbox_summary":
+            n, repos = p["count"], sorted({i["repo"] for i in p["items"]})
+            more = f" y {len(repos) - 3} más" if len(repos) > 3 else ""
+            self.core.alert("GitHub", GITHUB_APP, f"{n} novedad{'es' if n != 1 else ''} sin leer",
+                            ", ".join(repos[:3]) + more,
+                            action=lambda: self.core.open_github("https://github.com/notifications"))
+            return
         ref = f"{p['repo']}#{p['num']}"
+        go = lambda: self.core.open_github(p["url"])  # noqa: E731
         if kind == "review":
-            self.show(9.0, kind="card", icon=GITHUB_APP, app="GitHub · Revisión pedida",
-                      title=p["title"], body=f"{ref} · {p['author']}",
-                      action=lambda: self.core.open_github(p["url"]))
+            self.core.alert("GitHub · Revisión pedida", GITHUB_APP, p["title"], f"{ref} · {p['author']}", action=go)
+        elif kind == "merged":
+            self.core.alert("GitHub · PR fusionada", GITHUB_APP, p["title"], ref, action=go)
         elif kind == "ci":
             good = p["ci"] == "SUCCESS"
-            self.show(4.0, kind="pill", icon="emblem-ok-symbolic" if good else "dialog-error-symbolic",
-                      accent="green" if good else "red", text=f"CI {'pasó' if good else 'falló'} · {ref}")
+            self.core.alert("GitHub · CI", "emblem-ok-symbolic" if good else "dialog-error-symbolic",
+                            f"CI {'pasó' if good else 'falló'} · {ref}", p.get("title", ""), action=go,
+                            secs=5.0 if good else 10.0)
         elif kind == "decision":
             good = p["review"] == "APPROVED"
-            self.show(4.0, kind="pill", icon="emblem-ok-symbolic" if good else "document-edit-symbolic",
-                      accent="green" if good else "orange",
-                      text=f"{'Aprobada' if good else 'Piden cambios'} · {ref}")
+            self.core.alert("GitHub · Revisión", "emblem-ok-symbolic" if good else "document-edit-symbolic",
+                            f"{'Aprobada' if good else 'Piden cambios'} · {ref}", p.get("title", ""), action=go)
 
     def bt_connect(self, name, connected, ic):
         self.show(4.0, kind="pill", icon=ic, accent="blue" if connected else None,
