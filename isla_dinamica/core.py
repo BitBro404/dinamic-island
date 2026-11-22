@@ -11,6 +11,7 @@ from .services.clipboard import Clipboard
 from .services.deploys import Deploys
 from .services.downloads import Downloads
 from .services.fx import Fx
+from .services.ghaccounts import Accounts
 from .services.github import GitHub
 from .services.gitwatch import GitWatch
 from .services.lockguard import LockGuard, watch_session_lock
@@ -25,6 +26,7 @@ from .services.presence import Presence
 from .services.privacy import Privacy
 from .services.recorder import Recorder
 from .services.reminders import Reminders
+from .services.devnews import DevNews
 from .services.servers import Servers
 from .services.sysmon import SysMon
 from .services.system import Drives, Modes
@@ -76,7 +78,11 @@ class Core:
         self.weather = Weather(self.config, self._on_weather)
         self.pomo = Pomodoro(self.config, self.events.pomo_end, lambda: self.changed("pomo"))
         self.ms_unread = {"teams": 0, "outlook": 0}
-        self.git = GitWatch(self.config, lambda: self.changed("git"), self.events.git, lambda: self.feature("git"))
+        self.dev = DevNews(lambda: self.changed("dev"))   # punto azul: commits por bajar y PR nuevas sin ver
+        self.gh_accounts = Accounts(self.config, lambda: self.changed("github"))
+        self._github = {}          # cuenta → su servicio GitHub (estado independiente por cuenta)
+        self.git = GitWatch(self.config, self._git_changed, self.events.git, lambda: self.feature("git"),
+                            token_for=self._git_token, account=lambda: self.gh_accounts.current)
         self.capture = Capture(self)
         self.recorder = Recorder(lambda: self.changed("rec"), self.capture.recording_done, desktop=desktop)
         self.reminders = Reminders(lambda: self.changed("reminders"), self.events.reminder)
@@ -92,9 +98,12 @@ class Core:
                                    lambda: self.feature("downloads"))
         self.netmon = NetMon(lambda: self.changed("netmon"), self.events.net, lambda: self.feature("netmon"))
         self.sysmon = SysMon(lambda: self.changed("sysmon"), self.events.sysmon, lambda: self.feature("sysmon"))
-        self.servers = Servers(lambda: self.changed("servers"), self.events.server, lambda: self.feature("servers"))
-        self.deploys = Deploys(lambda: self.changed("deploys"), self.events.deploy, lambda: self.feature("deploys"))
-        self.github = GitHub(lambda: self.changed("github"), self.events.github, lambda: self.feature("github"))
+        self.servers = Servers(lambda: self.changed("servers"), self.events.server, lambda: self.feature("servers"),
+                               recent=lambda: self.config.data["servers_recent"],
+                               save_recent=self._save_servers_recent)
+        self.deploys = Deploys(lambda: self.changed("deploys"), self.events.deploy, lambda: self.feature("deploys"),
+                               env=lambda: self.gh_accounts.env())
+        self.github                # crea el servicio de la cuenta elegida
 
         # bienvenida al despertar / desbloquear
         sysbus.signal_subscribe("org.freedesktop.login1", "org.freedesktop.login1.Manager", "PrepareForSleep",
@@ -146,6 +155,14 @@ class Core:
             CLOCK["h24"] = on
         return on
 
+    def _save_servers_recent(self, recent):
+        self.config.data["servers_recent"] = list(recent)
+        try:
+            self.config.save()
+        except OSError:
+            pass
+        self.changed("servers")
+
     def set_feature(self, name, on):
         self.config.data["features"][name] = bool(on)
         self.feature(name)
@@ -162,6 +179,51 @@ class Core:
         elif on and name in ("git", "fx"):
             getattr(self, name).refresh()
         self.changed("features")
+
+    # ── GitHub por cuenta ──
+    @property
+    def github(self):
+        """Servicio GitHub de la cuenta elegida; cada cuenta guarda sus propias PR, bandeja y avisos."""
+        login = self.gh_accounts.current
+        if login not in self._github:
+            # se registra ANTES de la primera consulta: esa consulta redibuja la ventana, que vuelve a pedir
+            # core.github; si aún no estuviera guardado se crearía otro sin fin (RecursionError)
+            gh = self._github[login] = GitHub(
+                lambda: self.changed("github"),
+                lambda kind, p, login=login: login == self.gh_accounts.current and self.events.github(kind, p),
+                lambda login=login: self.feature("github") and login == self.gh_accounts.current,
+                login=login, env=lambda login=login: self.gh_accounts.env(login), repos=lambda: self.git.repos,
+                start=False)
+            gh.refresh()
+        return self._github[login]
+
+    def switch_github_account(self, login, done=lambda ok, msg: None):
+        """Cambia la cuenta de GitHub de la isla (pide la contraseña del usuario)."""
+        def fin(ok, msg):
+            if ok:
+                self.github.refresh()
+                self.deploys.reset()
+                self.git.refresh(fetch=True)
+            done(ok, msg)
+        self.gh_accounts.switch(login, fin)
+
+    def _git_token(self, s):
+        """Token de la cuenta elegida para los repos suyos; los demás usan las credenciales de git de siempre."""
+        slug = s.get("slug")
+        gh = self._github.get(self.gh_accounts.current)
+        if slug and gh and gh.access.get(slug):
+            return self.gh_accounts.token()
+        return None
+
+    def _git_changed(self):
+        gh = self._github.get(self.gh_accounts.current)
+        if gh and self.feature("github") and gh.unchecked():     # repos nuevos: ¿son de esta cuenta?
+            if gh.loading:
+                gh.recheck = True
+            else:
+                gh.refresh()
+        self.dev.still_behind({s["path"] for s in self.git.repos if s.get("behind")})
+        self.changed("git")
 
     def changed(self, kind=None):
         if kind:

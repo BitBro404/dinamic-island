@@ -1,4 +1,5 @@
-"""Página de inicio: reloj, música, volumen, ajustes rápidos y accesos."""
+"""Página de inicio: reloj, música, volumen, ajustes rápidos, accesos, sección DEV y «Más opciones».
+En los monitores que no son el principal, los ajustes rápidos y los accesos quedan tras el botón «Opciones»."""
 from gi.repository import Gtk
 
 from ..services.media import Volume
@@ -9,6 +10,7 @@ from ..ui.widgets.audio import Spectrum
 from ..ui.widgets.tile import Tile
 from ..ui.widgets.weather_icon import WeatherIcon
 from ..util.fmt import bat_icon, fecha, fmt_secs, hm
+from ..util.screens import primary_index
 from ..util.links import GITHUB_APP, TEAMS_APP
 from .base import Page
 from .registry import feature, page
@@ -136,7 +138,19 @@ class HomePage(Page):
         cols = 5 if len(tiles) > 8 else 4
         for i, t in enumerate(tiles):
             grid.attach(t, i % cols, i // cols, 1, 1)
-        box.pack_start(grid, False, False, 0)
+        # en el monitor secundario: ajustes rápidos y accesos ocultos tras «Opciones» (los rellena el bloque de abajo)
+        self.h_opts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.h_opts.pack_start(grid, False, False, 0)
+        self.h_secondary = not self._on_primary()
+        if self.h_secondary:
+            inner = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
+            self.h_opts_icon = icon("pan-down-symbolic")
+            inner.pack_start(self.h_opts_icon, False, False, 0)
+            self.h_opts_lbl = label("Opciones", "small", ellipsize=False)
+            inner.pack_start(self.h_opts_lbl, False, False, 0)
+            box.pack_start(button("work", inner, self._toggle_opts, "Ajustes rápidos y accesos"), False, False, 0)
+            self.h_opts.set_no_show_all(True)
+        box.pack_start(self.h_opts, False, False, 0)
 
         # accesos
         acts = Gtk.Box(spacing=5, halign=Gtk.Align.CENTER)
@@ -167,29 +181,76 @@ class HomePage(Page):
         act("timer-symbolic", "Pomodoro", "Pomodoro", lambda: self.go("pomo"))
         act("alarm-symbolic", "Alarma", "Temporizador", lambda: self.go("timer"))
         act("system-shutdown-symbolic", "Energía", "Bloquear, suspender, reiniciar, apagar", lambda: self.go("power"))
-        box.pack_start(acts, False, False, 0)
+        self.h_opts.pack_start(acts, False, False, 0)
+        if not self.h_secondary:
+            self.h_opts.show_all()
 
-        # trabajo: GitHub, Teams y correo
-        work = Gtk.Box(spacing=6)
+        # DEV: GitHub, servidores, proyectos y Teams/correo a un clic
+        self.h_dev = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.h_dev.pack_start(label("DEV", "section"), False, False, 0)
+        dev = Gtk.Box(spacing=5, homogeneous=True)
         self.work_labels, self.work_buttons = {}, {}
-        for key, ics, txt, tip, target in (("github", (GITHUB_APP,), "GitHub", "Pull requests y despliegues", "github"),
-                                         ("ms", (TEAMS_APP, "mail-unread-symbolic"), "Teams y correo",
-                                          "Mensajes de Teams y correo de Outlook", "ms")):
-            inner = Gtk.Box(spacing=7)
+        for key, ics, txt, tip, target in (
+                ("github", (GITHUB_APP,), "GitHub", "Pull requests, commits por sincronizar y despliegues", "github"),
+                ("servers", ("network-server-symbolic",), "Servidores", "Servidores locales y Docker", "servers"),
+                ("git", ("folder-symbolic",), "Proyectos", "Repos que vigilas: ramas, pull y push", "projects"),
+                ("ms", (TEAMS_APP, "mail-unread-symbolic"), "Teams y correo",
+                 "Mensajes de Teams y correo de Outlook", "ms")):
+            ov = Gtk.Overlay()
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, valign=Gtk.Align.CENTER)
+            ics_box = Gtk.Box(spacing=3, halign=Gtk.Align.CENTER)
             for ic in ics:
-                inner.pack_start(icon(ic, px=18), False, False, 0)
-            inner.pack_start(label(txt, "small", ellipsize=False), False, False, 0)
+                ics_box.pack_start(icon(ic, px=18), False, False, 0)
+            inner.pack_start(ics_box, False, False, 0)
+            inner.pack_start(label(txt, "time-small", xalign=0.5, ellipsize=False), False, False, 0)
+            btn = button("act", inner, lambda pg=target: self.go(pg), tip)
+            ov.add(btn)
             cnt = label("", "badge", xalign=0.5, ellipsize=False)
-            cnt.set_valign(Gtk.Align.CENTER)
+            cnt.set_halign(Gtk.Align.END)
+            cnt.set_valign(Gtk.Align.START)
             cnt.set_no_show_all(True)
-            inner.pack_end(cnt, False, False, 0)
+            ov.add_overlay(cnt)
             self.work_labels[key] = cnt
-            btn = self.work_buttons[key] = button("work", inner, lambda pg=target: self.go(pg), tip)
-            work.pack_start(btn, True, True, 0)
-        work.pack_end(button("work", icon("view-more-symbolic", px=18), lambda: self.go("more"),
-                             "Más herramientas y ajustes"), False, False, 0)
-        box.pack_start(work, False, False, 0)
+            self.work_buttons[key] = ov
+            dev.pack_start(ov, True, True, 0)
+        self.h_dev.pack_start(dev, False, False, 0)
+        box.pack_start(self.h_dev, False, False, 0)
+
+        more = Gtk.Box(spacing=7, halign=Gtk.Align.CENTER)
+        more.pack_start(icon("view-more-symbolic", px=18), False, False, 0)
+        more.pack_start(label("Más opciones", "small", ellipsize=False), False, False, 0)
+        box.pack_start(button("work", more, lambda: self.go("more"), "Herramientas, funciones y ajustes"),
+                       False, False, 0)
         return box
+
+    def _on_primary(self):
+        """¿Esta isla está en el monitor principal? (el que declara el sistema o, si no, el de arriba a la izquierda)"""
+        try:
+            d = self.monitor.get_display()
+            mons = [d.get_monitor(i) for i in range(d.get_n_monitors())]
+            origins = [(m.get_geometry().x, m.get_geometry().y) for m in mons]
+            prim = d.get_primary_monitor()
+            idx = primary_index(origins, mons.index(prim) if prim in mons else None)
+            return idx is None or mons[idx] == self.monitor
+        except (AttributeError, TypeError, ValueError):
+            return True
+
+    def _toggle_opts(self, show=None):
+        show = not self.h_opts.get_visible() if show is None else show
+        if show:                              # no_show_all: show_all() sobre la caja no hace nada
+            for ch in self.h_opts.get_children():
+                ch.show_all()
+            self.h_opts.show()
+        else:
+            self.h_opts.hide()
+        self.h_opts_icon.set_from_icon_name("pan-up-symbolic" if show else "pan-down-symbolic", Gtk.IconSize.MENU)
+        self.h_opts_lbl.set_text("Ocultar opciones" if show else "Opciones")
+        self.refresh()
+
+    def on_collapse(self):
+        super().on_collapse()
+        if self.h_secondary and self.h_opts.get_visible():
+            self._toggle_opts(False)          # al cerrarse vuelve a quedar compacta
 
     def _set_count(self, key, n):
         lb = self.work_labels[key]
@@ -265,7 +326,9 @@ class HomePage(Page):
             self.badge.show()
         else:
             self.badge.hide()
-        self._set_count("github", len(c.github.review))
+        self._set_count("github", len(c.github.review) + c.dev.count("pr"))
+        self._set_count("servers", len(c.servers.items) + len(c.servers.docker))
+        self._set_count("git", sum(1 for s in c.git.repos if s.get("behind") or s.get("ahead")))
         self._set_count("ms", c.ms_unread["teams"] + c.ms_unread["outlook"])
 
         p = c.privacy
@@ -273,8 +336,9 @@ class HomePage(Page):
         self.h_priv.set_visible(bool(p.cam or p.mic))
         set_accent(self.h_priv, "green" if p.cam else "orange")
         self.h_w_btn.set_visible(c.feature("weather"))
-        self.work_buttons["github"].set_visible(c.feature("github"))
-        self.work_buttons["ms"].set_visible(c.feature("ms"))
+        for key in self.work_buttons:
+            self.work_buttons[key].set_visible(c.feature(key))
+        self.h_dev.set_visible(any(c.feature(k) for k in self.work_buttons))
         wd = c.weather.data
         if wd:
             self.h_w.set_text(f"{wd['temp']:.0f}° · {wd['desc']}")

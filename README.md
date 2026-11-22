@@ -131,7 +131,7 @@ donde puedes activar o desactivar cada función. Los cambios se guardan en
 
 | Función | Qué necesita para funcionar |
 |---|---|
-| **GitHub** | `gh auth login`. Muestra las revisiones pedidas, tus PR abiertas y las fusionadas en 7 días. Consulta cada 3 min y avisa con una alerta, que queda en Notificaciones, de: cada novedad de tu bandeja de GitHub (PR nuevas, comentarios, menciones, issues, releases de los repos que sigues), CI terminado, revisiones aprobadas o con cambios y PR tuyas fusionadas. Al arrancar da un solo resumen de lo que haya sin leer. |
+| **GitHub** | `gh auth login` (una vez por cada cuenta). Detecta todas las cuentas con sesión en `gh`; en «Cuentas» eliges cuál usa la isla y cambiarla pide tu contraseña (polkit) y se recuerda al reiniciar. No cambia la cuenta activa de `gh` en la terminal: cada consulta usa el token de la cuenta elegida, y cada cuenta guarda sus propias PR, bandeja y avisos. Muestra revisiones pedidas, PR de otros en tus repos, tus PR abiertas y las fusionadas en 7 días. Al tocar una PR ves su detalle (ramas, cambios, CI, descripción, commits) y puedes aprobarla, pedir cambios (con comentario), fusionarla o cerrarla; fusionar y cerrar piden un segundo clic. En «Proyectos» (junto a «Cuentas») añades o quitas los proyectos de cada cuenta (un repo o una carpeta con varios): se recuerdan por cuenta en `config.json` (`account_folders`) y se vigilan con git y GitHub mientras uses esa cuenta; quitarlos no borra nada del disco. «Tus repos» lista esos proyectos más los repos de las carpetas de «Proyectos (git)» a los que la cuenta tiene acceso; dentro de cada uno puedes cambiar de rama (locales o remotas; bloqueado si hay cambios sin commit), crear una rama nueva desde otra (local o remota, y cambiarte a ella si marcas «ir»), hacer merge de la rama elegida en la actual («Merge aquí», con segundo clic; bloqueado con cambios sin commit) y, si hay conflictos, resolverlos con Claude Code u OpenCode (se abren en una terminal en el repo con la instrucción de resolver, marcar con `git add` y no hacer commit) o abrir VS Code para hacerlo a mano; después «Terminar merge» hace el commit, o «Cancelar merge» lo deshace; crear una PR de una rama a otra (abre la página de comparar de GitHub para confirmarla allí; si la rama de origen no está subida o tiene commits sin subir, solo avisa) y ver los stash con su rama, mensaje y fecha, con Aplicar (pop) y Borrar (segundo clic). «Commits por sincronizar» lista los repos de la cuenta con commits por bajar o subir; dentro ves cada commit con autor, hace cuánto y una vista previa del mensaje, y los botones Bajar (pull, solo avance rápido) y Subir (push), con las credenciales de esa cuenta. Consulta y hace `git fetch` cada 5 min; el botón Actualizar lo hace al momento. Avisa con una alerta, que queda en Notificaciones, de cada novedad de tu bandeja de GitHub, CI terminado, revisiones y PR tuyas fusionadas. |
 | **Despliegues en vivo** | Lo mismo que GitHub. Lee los *deployments* que Railway u otras plataformas reportan a GitHub en tus repos con actividad de las últimas 3 semanas. Se ven en la pestaña GitHub. |
 | **Teams y correo** | Teams (app o PWA de Chrome) y Outlook web abierto en Chrome, con las notificaciones permitidas. La isla lee esas notificaciones; no usa la API de Microsoft. |
 | **Clima** | Nada. Toma la ciudad de tu zona horaria; puedes cambiarla en la página Clima. |
@@ -148,6 +148,32 @@ donde puedes activar o desactivar cada función. Los cambios se guardan en
 está pasando (`Pomodoro · Enfoque · 12:30`, `Música · Canción · Artista`, `Grabación · 00:12`…); en Bluetooth se ve
 el nombre del dispositivo y su batería (`BT · 80%`). La isla no se expande con el ratón encima de una burbuja:
 **haz clic** en ella para abrir su página. El clic en la píldora sigue abriendo Inicio.
+
+**Servidores locales.** La página se revisa sola cada 4 s; el ↻ de la cabecera fuerza un escaneo de puertos (y de Docker) al momento y dice cuántos encontró. En la página de servidores, cada servidor tuyo tiene ■ Detener y ↻ Reiniciar (ambos
+con segundo clic). Al detenerlo (o si se cae) la isla recuerda cómo se arrancó: la carpeta, el comando del
+lanzador (`npm run dev`, no el `node …/vite` interno) y solo el `PATH` del entorno (nada más, por si lleva
+secretos). Quedan en **DETENIDOS** (hasta 8, en `servers_recent` de la configuración) con ▶ Relanzar y ✕ Olvidar.
+Lo relanzado corre en segundo plano en su propia sesión (sigue vivo si reinicias la isla) y su salida va a
+`~/.cache/isla-dinamica/servers/<nombre>-<puerto>.log`.
+**Docker** (si `docker` funciona sin sudo): los contenedores en marcha salen agrupados por proyecto de compose
+(«opengym · :8080 · api, web») o uno por contenedor suelto, en vez de «Docker / sistema». ↻ es `docker restart`,
+■ es `docker stop` de todos sus contenedores y ▶ en DETENIDOS es `docker start` (Docker conserva los contenedores
+detenidos; la isla solo recuerda sus nombres). Si el demonio no responde, no se toma como una caída.
+
+**Inicio y sección DEV.** Bajo el volumen y los ajustes rápidos está **DEV**: GitHub, Servidores, Proyectos y
+Teams y correo a un clic, cada uno con su contador (revisiones y PR nuevas, servidores en marcha, repos por
+sincronizar, mensajes sin leer). Al final, **Más opciones** abre la página con las demás herramientas y funciones.
+En los monitores que no son el principal (el que declara el sistema o, si no, el de arriba a la izquierda),
+los ajustes rápidos y los accesos quedan tras el botón **Opciones** y se vuelven a ocultar al cerrar la isla.
+
+**Punto azul de novedades.** Cuando el fetch encuentra commits por bajar o aparece una PR nueva (de otros en tus
+repos, o una revisión pedida), salta una alerta y la píldora muestra un punto azul. Se apaga al abrir GitHub
+(o Proyectos para los commits) o al hacer pull.
+
+**Siempre centrada.** La isla arranca siempre arriba y centrada en cada monitor. Al expandirse crece por igual
+hacia la izquierda y hacia la derecha (el centro no se mueve): en layer-shell se ancla solo al borde y el
+compositor la centra, así tamaño y posición llegan juntos. Si la arrastras y la sueltas cerca del medio de un
+borde (±6 %), se ajusta al centro; la píldora y sus burbujas se centran como un grupo.
 Si no caben todas, la burbuja `+N` abre la lista **Tareas en curso**.
 
 ### Presencia (bloquear si no hay nadie)
@@ -188,7 +214,7 @@ novedades hubo en esa sección desde las 00:00, aunque esté plegada.
 ```jsonc
 {
   "city": null,                                 // ciudad del clima (null = según la zona horaria)
-  "dock": {"edge": "top", "pos": 0.5},         // borde y posición de la píldora
+  "dock": {"edge": "top", "pos": 0.5},         // borde y posición; al arrancar siempre vuelve arriba al centro
   "features": {"presence": true},              // funciones activadas o desactivadas
   "collapsed": ["gh_merged"],                  // secciones plegadas
   "git_folders": ["~/Documentos/WM"],          // carpetas que vigila «Proyectos»

@@ -58,6 +58,7 @@ class ProjectsPage(Page):
         return box
 
     def _open_projects(self):
+        self.core.dev.seen("behind")
         if not self.core.git.updated or time.time() - self.core.git.updated > 20:
             self.core.git.refresh()
 

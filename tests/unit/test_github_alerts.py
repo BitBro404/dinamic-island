@@ -21,6 +21,7 @@ def bare_github():
     g.on_event = lambda kind, p: g.events.append((kind, p))
     g._seen, g._merged, g._known, g._prev = None, None, None, {}
     g.mine, g.review, g.merged, g.inbox = [], [], [], []
+    g.theirs, g._theirs, g._alerted = [], None, set()
     return g
 
 

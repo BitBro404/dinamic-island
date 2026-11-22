@@ -14,6 +14,8 @@ class FakeCore:
         self.shown, self.opened = [], []
         self.charge_limit = NS(enabled=True, end=80, supported=True)
         self.weather = NS(data=None)
+        from isla_dinamica.services.devnews import DevNews
+        self.dev = DevNews()
 
     def show_event(self, secs=3.0, **ev):
         self.shown.append(dict(ev, secs=secs))
@@ -116,6 +118,18 @@ class EventRouterTest(unittest.TestCase):
         self.assertEqual(self.last()["title"], "1 commit nuevo en origin/main")
         self.ev.git("behind", {"name": "api", "behind": 3, "upstream": "origin/main", "path": "/r"})
         self.assertEqual(self.last()["title"], "3 commits nuevos en origin/main")
+
+    def test_behind_and_new_pr_light_the_dev_dot(self):
+        self.ev.git("behind", {"name": "api", "behind": 2, "upstream": "origin/main", "path": "/r"})
+        self.assertEqual(self.core.dev.items, {("behind", "/r")})
+        p = {"id": "PR_7", "repo": "o/r", "num": 7, "title": "Arreglo", "author": "ana",
+             "url": "https://github.com/o/r/pull/7"}
+        self.ev.github("new_pr", p)
+        self.assertEqual((self.last()["app"], self.last()["title"], self.last()["body"]),
+                         ("GitHub · PR nueva", "Arreglo", "o/r#7 · ana"))
+        self.assertIn(("pr", "PR_7"), self.core.dev.items)
+        self.last()["action"]()
+        self.assertEqual(self.core.opened, ["https://github.com/o/r/pull/7"])
 
     def test_git_ahead(self):
         self.ev.git("ahead", {"name": "api", "ahead": 2, "branch": "main", "upstream": "origin/main", "path": "/r"})

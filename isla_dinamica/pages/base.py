@@ -83,12 +83,12 @@ class Page:
         return False
 
     # ── piezas de interfaz comunes ──
-    def _page(self, title, right=None):
-        """Caja de una página con su cabecera: volver, título, hora y (opcional) un control a la derecha."""
+    def _page(self, title, right=None, back="home"):
+        """Caja de una página con su cabecera: volver (a `back`), título, hora y (opcional) un control a la derecha."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                       margin_start=16, margin_end=16, margin_top=12, margin_bottom=14)
         head = Gtk.Box(spacing=6)
-        head.pack_start(button("ctrl", icon("go-previous-symbolic"), lambda: self.go("home"), "Volver"),
+        head.pack_start(button("ctrl", icon("go-previous-symbolic"), lambda: self.go(back), "Volver"),
                         False, False, 0)
         head.pack_start(label(title, "title"), True, True, 0)
         clk = label(hm(), "c-time", ellipsize=False)

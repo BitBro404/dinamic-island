@@ -37,12 +37,53 @@ class DockGeometryTest(unittest.TestCase):
         self.assertEqual(drop_position(10, 270, MW, MH), ("left", 0.25))
 
     def test_layer_layout_grows_away_from_its_edge(self):
-        self.assertEqual(layer_layout("top", 860, 6, 200, 34, MW, MH), (("top", "left"), {"top": 6, "left": 860}))
-        self.assertEqual(layer_layout("bottom", 860, 1040, 200, 34, MW, MH),
-                         (("bottom", "left"), {"bottom": 6, "left": 860}))
-        self.assertEqual(layer_layout("right", 1880, 440, 34, 200, MW, MH),
-                         (("top", "right"), {"top": 440, "right": 6}))
+        self.assertEqual(layer_layout("top", 400, 6, 200, 34, MW, MH), (("top", "left"), {"top": 6, "left": 400}))
+        self.assertEqual(layer_layout("bottom", 400, 1040, 200, 34, MW, MH),
+                         (("bottom", "left"), {"bottom": 6, "left": 400}))
+        self.assertEqual(layer_layout("right", 1880, 200, 34, 200, MW, MH),
+                         (("top", "right"), {"top": 200, "right": 6}))
         self.assertEqual(layer_layout(None, 10, 20, 34, 200, MW, MH), (("top", "left"), {"top": 20, "left": 10}))
+
+
+    def test_centered_island_is_centered_by_the_compositor(self):
+        """Centrada en su borde: solo se ancla a ese borde y el compositor la centra; así el ancho nuevo y la
+        posición llegan juntos y crece igual hacia x y hacia -x (sin margen izquierdo que corregir)."""
+        for w in (200, 360, 520):
+            x, y = dock_xy("top", 0.5, w, 34, MW, MH, GAP)
+            self.assertEqual(layer_layout("top", x, y, w, 34, MW, MH), (("top",), {"top": 6}))
+        x, y = dock_xy("bottom", 0.5, 300, 34, MW, MH, GAP)
+        self.assertEqual(layer_layout("bottom", x, y, 300, 34, MW, MH), (("bottom",), {"bottom": 6}))
+        x, y = dock_xy("left", 0.5, 34, 300, MW, MH, GAP)
+        self.assertEqual(layer_layout("left", x, y, 34, 300, MW, MH), (("left",), {"left": 6}))
+
+    def test_center_stays_put_while_growing(self):
+        for pos in (0.25, 0.5, 0.8):
+            centers = {dock_xy("top", pos, w, 34, MW, MH, GAP)[0] + w / 2 for w in (180, 240, 400)}
+            self.assertEqual(centers, {pos * MW})
+
+    def test_off_center_keeps_its_margin_anchor(self):
+        x, y = dock_xy("top", 0.25, 200, 34, MW, MH, GAP)
+        self.assertEqual(layer_layout("top", x, y, 200, 34, MW, MH), (("top", "left"), {"top": 6, "left": 380}))
+
+    def test_drop_near_the_middle_snaps_to_the_center(self):
+        self.assertEqual(drop_position(1000, 10, MW, MH), ("top", 0.5))
+        self.assertEqual(drop_position(900, 1070, MW, MH), ("bottom", 0.5))
+        self.assertEqual(drop_position(10, 560, MW, MH), ("left", 0.5))
+
+
+class StartsTopCenterTest(unittest.TestCase):
+    def test_saved_dock_is_ignored_at_start(self):
+        import json
+        import tempfile
+        from unittest import mock
+        from isla_dinamica import config as cfgmod
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w") as f:
+                json.dump({"dock": {"edge": "left", "pos": 0.2}}, f)
+            with mock.patch.object(cfgmod, "CONFIG_PATH", path):
+                c = cfgmod.Config()
+        self.assertEqual(c.data["dock"], {"edge": "top", "pos": 0.5})
 
 
 if __name__ == "__main__":

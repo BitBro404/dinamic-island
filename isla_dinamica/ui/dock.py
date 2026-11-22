@@ -32,15 +32,27 @@ def dock_xy(edge, pos, w, h, mw, mh, gap=GAP, center=None):
     return max(gap, min(cx - w / 2, mw - w - gap)), max(gap, min(cy - h / 2, mh - h - gap))
 
 
+SNAP = 0.06      # soltarla a menos de este tanto del medio del borde la deja centrada
+
+
 def drop_position(cx, cy, mw, mh):
-    """Al soltar en (cx, cy): (borde más cercano, posición relativa a lo largo de ese borde)."""
+    """Al soltar en (cx, cy): (borde más cercano, posición relativa a lo largo de ese borde); cerca del medio
+    se ajusta a 0.5 para que quede centrada."""
     edge = nearest_edge(cx, cy, mw, mh)
-    return edge, (cx / mw if edge in ("top", "bottom") else cy / mh)
+    pos = cx / mw if edge in ("top", "bottom") else cy / mh
+    return edge, (0.5 if abs(pos - 0.5) <= SNAP else pos)
 
 
 def layer_layout(edge, x, y, w, h, mw, mh):
-    """Anclas y márgenes de layer-shell para que la isla crezca alejándose de su borde:
-    abajo crece hacia arriba, a la derecha crece hacia la izquierda; el resto, desde arriba-izquierda."""
+    """Anclas y márgenes de layer-shell para que la isla crezca alejándose de su borde.
+
+    Centrada en su borde, se ancla SOLO a ese borde: el compositor la centra y el tamaño nuevo y la posición
+    llegan en el mismo commit, así crece por igual hacia los dos lados. Fuera del centro: abajo crece hacia
+    arriba, a la derecha hacia la izquierda; el resto, desde arriba-izquierda (con margen que se recalcula)."""
+    if edge in ("top", "bottom") and abs(x + w / 2 - mw / 2) <= 1:
+        return (edge,), {edge: y if edge == "top" else mh - y - h}
+    if edge in ("left", "right") and abs(y + h / 2 - mh / 2) <= 1:
+        return (edge,), {edge: x if edge == "left" else mw - x - w}
     if edge == "bottom":
         return ("bottom", "left"), {"bottom": mh - y - h, "left": x}
     if edge == "right":

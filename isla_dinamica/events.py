@@ -92,6 +92,7 @@ class EventRouter:
                             action=lambda: open_uri("file://" + s["path"]))
         else:
             n = s["behind"]
+            self.core.dev.mark("behind", s["path"])
             self.core.alert(f"Git · {s['name']}", "emblem-synchronizing-symbolic",
                             f"{n} commit{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''} en {s['upstream']}",
                             "Haz pull para sincronizar", action=lambda: open_uri("file://" + s["path"]))
@@ -151,11 +152,16 @@ class EventRouter:
                       text="La CPU está muy caliente", right=f"{value:.0f}°", right_accent="red")
 
     def server(self, kind, s):
-        where = f"{s['name']} · :{s['port']}"
+        where = f"{s['name']} · :{s['port']}" if s.get("port") else s["name"]
         if kind == "up":
             self.show(3.0, kind="pill", icon="network-server-symbolic", accent="green", text=f"Listo · {where}")
         elif kind == "stopped":
             self.show(2.5, kind="pill", icon="process-stop-symbolic", text=f"Detenido · {where}")
+        elif kind == "restarting":
+            self.show(3.0, kind="pill", icon="view-refresh-symbolic", accent="orange", text=f"Relanzando · {where}")
+        elif kind == "failed":
+            self.show(6.0, kind="pill", icon="dialog-error-symbolic", accent="red",
+                      text=f"No se pudo relanzar · {where}")
         else:
             self.show(6.0, kind="pill", icon="dialog-error-symbolic", accent="red", text=f"Se cayó · {where}")
 
@@ -186,7 +192,11 @@ class EventRouter:
             return
         ref = f"{p['repo']}#{p['num']}"
         go = lambda: self.core.open_github(p["url"])  # noqa: E731
-        if kind == "review":
+        if kind == "new_pr":
+            self.core.dev.mark("pr", p.get("id") or p["url"])
+            self.core.alert("GitHub · PR nueva", GITHUB_APP, p["title"], f"{ref} · {p['author']}", action=go)
+        elif kind == "review":
+            self.core.dev.mark("pr", p.get("id") or p["url"])
             self.core.alert("GitHub · Revisión pedida", GITHUB_APP, p["title"], f"{ref} · {p['author']}", action=go)
         elif kind == "merged":
             self.core.alert("GitHub · PR fusionada", GITHUB_APP, p["title"], ref, action=go)

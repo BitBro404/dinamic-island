@@ -11,13 +11,16 @@ def dbg(*a):
         print(*a, flush=True)
 
 
-def run(argv, cb=None, stdin=None):
-    """Lanza un proceso sin bloquear; cb(ok, stdout, stderr)."""
+def run(argv, cb=None, stdin=None, env=None):
+    """Lanza un proceso sin bloquear; cb(ok, stdout, stderr). `env`: variables extra (p. ej. GH_TOKEN),
+    así los secretos no aparecen en la línea de comandos que ve cualquiera con `ps`."""
     flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
     if stdin is not None:
         flags |= Gio.SubprocessFlags.STDIN_PIPE
     launcher = Gio.SubprocessLauncher.new(flags)
     launcher.setenv("LC_ALL", "C", True)
+    for k, v in (env or {}).items():
+        launcher.setenv(k, v, True)
     try:
         proc = launcher.spawnv(argv)
     except GLib.Error as e:

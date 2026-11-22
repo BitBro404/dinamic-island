@@ -38,13 +38,19 @@ class Deploys:
     """Consulta con `gh` los despliegues recientes de los repos con actividad en las últimas 3 semanas.
     Cada 30 s si hay alguno en curso; si no, cada 90 s. Una sola consulta GraphQL por vuelta."""
 
-    def __init__(self, on_change, on_event, enabled=lambda: True):
-        self.on_change, self.on_event, self.enabled = on_change, on_event, enabled
+    def __init__(self, on_change, on_event, enabled=lambda: True, env=dict):
+        self.on_change, self.on_event, self.enabled, self.env = on_change, on_event, enabled, env
         self.items = {}            # id → despliegue
         self.repos, self._repos_t = [], 0.0
         self.loading, self.updated, self.error = False, 0.0, ""
         self._known = None         # ids vistos (None = primera carga: no avisar de lo viejo)
         self.poll = Poller(self.refresh).soon(6)
+
+    def reset(self):
+        """Otra cuenta: olvidar repos y despliegues de la anterior y volver a consultar."""
+        self.items, self.repos, self._repos_t, self._known, self.error = {}, [], 0.0, None, ""
+        self.on_change()
+        self.refresh()
 
     # ── consultas ──
     def refresh(self):
@@ -55,7 +61,7 @@ class Deploys:
             return
         self.loading = True
         if not self.repos or time.time() - self._repos_t > 1800:
-            run(["gh", "api", "graphql", "-f", "query=" + _REPOS_Q], self._got_repos)
+            run(["gh", "api", "graphql", "-f", "query=" + _REPOS_Q], self._got_repos, env=self.env())
         else:
             self._query()
 
@@ -80,7 +86,7 @@ class Deploys:
         for i, full in enumerate(self.repos):
             owner, name = full.split("/", 1)
             parts.append(f'r{i}: repository(owner: "{owner}", name: "{name}") {{ {_DEPLOY_FIELDS} }}')
-        run(["gh", "api", "graphql", "-f", "query=query { " + " ".join(parts) + " }"], self._done)
+        run(["gh", "api", "graphql", "-f", "query=query { " + " ".join(parts) + " }"], self._done, env=self.env())
 
     def _fail(self, err):
         self.loading = False

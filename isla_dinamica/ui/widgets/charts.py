@@ -6,25 +6,25 @@ from gi.repository import Gtk
 
 
 class PrivacyDots(Gtk.DrawingArea):
-    """Puntos de privacidad: verde = cámara, naranja = micrófono."""
-    CAM, MIC = (0.19, 0.82, 0.35), (1.0, 0.62, 0.04)
+    """Puntos de la píldora: verde = cámara, naranja = micrófono, azul = novedades de git/GitHub sin ver."""
+    CAM, MIC, DEV = (0.19, 0.82, 0.35), (1.0, 0.62, 0.04), (0.04, 0.52, 1.0)
 
     def __init__(self):
         super().__init__()
-        self.cam = self.mic = False
+        self.cam = self.mic = self.dev = False
         self.set_valign(Gtk.Align.CENTER)
         self.set_halign(Gtk.Align.CENTER)
         self.connect("draw", self._draw)
         self._resize()
 
-    def set_state(self, cam, mic):
-        if (cam, mic) != (self.cam, self.mic):
-            self.cam, self.mic = bool(cam), bool(mic)
+    def set_state(self, cam, mic, dev=False):
+        if (cam, mic, dev) != (self.cam, self.mic, self.dev):
+            self.cam, self.mic, self.dev = bool(cam), bool(mic), bool(dev)
             self._resize()
             self.queue_draw()
 
     def count(self):
-        return int(self.cam) + int(self.mic)
+        return int(self.cam) + int(self.mic) + int(self.dev)
 
     def _resize(self):
         n = self.count()
@@ -33,7 +33,7 @@ class PrivacyDots(Gtk.DrawingArea):
     def _draw(self, _w, cr):
         a = self.get_allocation()
         x = (a.width - (self.count() * 8 + max(0, self.count() - 1) * 4)) / 2
-        for on, col in ((self.cam, self.CAM), (self.mic, self.MIC)):
+        for on, col in ((self.cam, self.CAM), (self.mic, self.MIC), (self.dev, self.DEV)):
             if on:
                 cr.set_source_rgb(*col)
                 cr.arc(x + 4, a.height / 2, 4, 0, 2 * math.pi)

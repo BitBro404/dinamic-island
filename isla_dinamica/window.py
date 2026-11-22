@@ -201,9 +201,10 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
     def _show(self, name, size):
         if name == "compact":
             p = self.core.privacy
-            self.c_dots.set_state(p.cam, p.mic)
-            self.c_dots.set_visible(bool(p.cam or p.mic))
-            if (p.cam or p.mic) and not self.vertical:
+            dev = self.core.dev.pending and (self.core.feature("github") or self.core.feature("git"))
+            self.c_dots.set_state(p.cam, p.mic, dev)
+            self.c_dots.set_visible(bool(p.cam or p.mic or dev))
+            if (p.cam or p.mic or dev) and not self.vertical:
                 size = (size[0] + self.c_dots.count() * 12 + 6, size[1])   # sitio para los puntos
         if name == "compact" and self.vertical:
             nat = self.c_box.get_preferred_height_for_width(H)[1]
