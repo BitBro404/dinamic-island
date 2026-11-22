@@ -73,13 +73,26 @@ primera que esté activa):
 15. En reposo: la hora, un punto rojo si hay avisos sin leer y la temperatura.
 
 **Burbujas de actividades:** lo que está activo pero no cabe en la píldora aparece como círculos a su lado,
-con un anillo de progreso cuando lo hay. Al pasar el ratón por una burbuja se abre su página.
+con un anillo de progreso cuando lo hay. Pasar el ratón por una burbuja solo muestra un tooltip con el nombre
+de la opción y su estado (`Pomodoro · Enfoque · 12:30`, `Música · Canción · Artista`, `Grabación · 00:12`…);
+**hacer clic** abre su página. La burbuja Bluetooth (función «Burbuja Bluetooth», activa por defecto) usa el
+icono del dispositivo y el anillo para el porcentaje de batería; el tooltip muestra `Nombre · NN%`, o solo el
+nombre si no hay batería. Solo se muestra el primer dispositivo conectado por orden alfabético de nombre.
+
+**Burbuja «+N» y «Tareas en curso»:** se ven como mucho 2 burbujas. Si hay más actividades fuera de la píldora,
+aparece una tercera con `+N` (cuántas no caben; tooltip `Tareas en curso · N más`). Al hacer clic se abre la
+página **Tareas en curso**, que lista todo lo que está en marcha (lo de la píldora, las burbujas y las ocultas) con
+su estado actualizado cada segundo; clic en una fila abre la página de esa actividad. Función «Burbuja de tareas»
+en *Más → Funciones*, activa por defecto (apagada: solo 2 burbujas, como antes).
 
 ### Interacción
 
 | Gesto | Qué hace |
 |---|---|
-| Pasar el ratón | Expande el panel (página de inicio) |
+| Pasar el ratón por la píldora | Expande el panel (página de inicio) |
+| Pasar el ratón por una burbuja | Muestra el tooltip (opción y estado); la isla sigue compacta |
+| Clic en una burbuja | Abre la página de esa actividad |
+| Clic en la burbuja «+N» | Abre «Tareas en curso» con todas las actividades |
 | Clic en la píldora | Expande el panel; si es una tarjeta de aviso, ejecuta su acción (abrir el chat, el PR…) |
 | Rueda del ratón sobre la píldora | Sube o baja el volumen (requiere nivel 2) |
 | Arrastrar la píldora | La mueve. Al soltarla se acopla al borde más cercano (arriba, abajo, izquierda o derecha) y se guarda la posición |
@@ -110,7 +123,7 @@ sudo apt install network-manager rfkill iproute2 bluez upower power-profiles-dae
 | Función | Servicio que usa | Qué hace |
 |---|---|---|
 | **Wi‑Fi** (casilla y página) | NetworkManager (`nmcli`) | Encender o apagar el Wi‑Fi, ver las redes y conectarse (pide la contraseña si hace falta) |
-| **Bluetooth** (casilla y página) | BlueZ (`org.bluez`) | Encender o apagar, ver los dispositivos con su batería, y conectar o desconectar |
+| **Bluetooth** (casilla, página y burbuja) | BlueZ (`org.bluez`) | Encender o apagar, ver los dispositivos con su batería, conectar o desconectar, y mostrar como burbuja al primer dispositivo conectado (nombre y porcentaje; se activa o desactiva en *Más → Funciones → Burbuja Bluetooth*) |
 | **Avión** | `rfkill` | Apaga o enciende todas las radios |
 | **Red y VPN** (Más → Red) | `nmcli`, `ip`, `/sys/class/net` | Velocidad de bajada y subida en vivo, interfaz, IP local y VPN activa. Avisa si se cae Internet o la VPN |
 | **Servidores locales** (Más → Servidores) | `ss` (iproute2) | Servidores de desarrollo escuchando en los puertos 3000–9999 (Vite, Next, Nest, Django, Spring…): abrirlos en el navegador, detenerlos y aviso si se caen |

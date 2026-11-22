@@ -1,81 +1,114 @@
 # Handoff
 
 ## Solicitud y objetivo
-Hacer la isla dinámica universal: KDE, GNOME, Cinnamon, MATE, XFCE, LXDE, LXQt, Budgie, sway, Hyprland,
-Wayfire, river, labwc, niri y cualquier otro escritorio Linux, en Wayland o X11 y en las familias
-Debian/Ubuntu, Fedora, Arch y openSUSE. El usuario pidió continuar el plan el 2026-11-21 y aprobó
-«ejecuta todo» (U4–U8).
+Añadir una burbuja de Bluetooth junto a la píldora, como la del pomodoro en curso, para el primer dispositivo
+Bluetooth conectado: icono del dispositivo, anillo con el porcentaje de batería y tooltip `Nombre · NN%`. Sin
+batería se muestra solo el nombre. Interruptor `bt_bubble` en «Más → Funciones», activo por defecto.
+
+**Ampliación B6 (misma sesión):** el usuario pidió además que el **hover** de una burbuja solo muestre un tooltip
+(nombre de la opción y qué está pasando; en Bluetooth, dispositivo y batería) sin expandir la isla, y que el
+**clic** abra la página de esa actividad. El clic en la píldora sigue abriendo Inicio.
 
 ## Repositorios dentro del alcance
 - Único repo: `/home/luis/dinamic island` (rama `main`). No hay repos anidados.
-- Todos los cambios siguen **sin commitear**; no se hace commit, push, merge ni reset sin autorización.
-- Hay cambios preexistentes del usuario que se han conservado (`core.py`, `main.py`, `ui/*`, `window.py`,
-  `tests/harness.py`, `isla_dinamica/__init__.py`, entre otros).
+- Estado Git al empezar esta tarea: limpio, `main...origin/main`. El trabajo anterior ya fue **commiteado y subido**
+  como `3c7eab2` («Universalizar la isla…») en `origin/main`.
+- Para esta tarea **no se ha hecho commit ni push**; tampoco merge/rebase/reset.
 
 ## Estado actual
-- **U0–U8 terminados** siguiendo TDD (RED → GREEN → REFACTOR), con 218 pruebas unitarias en verde.
-- Plan maestro actualizado: `plan.md` (raíz). Plan anterior archivado en
-  `.ai/plans/2026-11-21-seguridad-refactor.md`.
-- Falta únicamente la **validación del usuario en VM** de los escritorios que no existen en esta máquina.
-  Los resúmenes/memoria finales NO se han escrito: dependen de esa confirmación.
+- Plan activo: `plan.md` (raíz). Plan universal anterior conservado en `.ai/plans/2026-11-21-isla-universal.md`.
+- B0–B5 y B6.1–B6.7 terminados con TDD; falta únicamente la validación visual del usuario en su escritorio.
+- Incidencia resuelta: el usuario no veía la burbuja con sus auriculares reales porque la isla en marcha usaba
+  la copia instalada antigua (19:05). Se ejecutó `./install.sh`, la copia instalada ya contiene el cambio y la
+  captura real muestra la burbuja (693 px de ancho, 203 px azules frente a 646/0 sin ella).
+- No se ha escrito el resumen final en `.ai/summaries/`; depende de la validación visual del usuario.
 
 ## Decisiones confirmadas
-- D1–D4 y P1–P5 del plan (soporte universal con piezas provisionales; ocultar/marcar «No disponible» +
-  `--doctor`; `install.sh --deps` con confirmación; pruebas unitarias + X11 aquí y el resto en VM;
-  XWayland sin layer-shell; ventana X11 DOCK con máscara; extensión GNOME provisional; cadenas con
-  `available()` vía `Tools` inyectables; mantener S1–S4).
-- U2/U3: `services/notifications.py`, `Presence` y `Power` delegan en `platform/`; se conservan S2 (sin
-  bloqueo verificado no se apaga la pantalla) y S4 (filtro de secretos del portapapeles).
-- U4: portapapeles, capturas y grabación con cadenas por método; el portal es el último recurso.
-- U5: `appearance`, `session`, `apps` y `audio`; `systemd-inhibit` guarda el proceso y se termina al
-  desactivar; `Modes` delega en `Appearance`/`Session`.
-- U6/U7: `tools/` genera paquetes, autoarranque y lanzador; `install.sh` pregunta antes de usar `sudo` o
-  instalar la extensión; `platform/shell.py` centraliza el bus de la extensión.
-- U8: los nombres de escritorio solo viven en `platform/` (regla comprobada por AST en
-  `tests/unit/test_architecture.py`).
+- D1 burbuja redonda con anillo de batería; nombre y `%` en tooltip.
+- D2 solo el primer dispositivo conectado, elegido por orden alfabético de nombre (estabilidad entre refrescos).
+- D3 sin batería → nombre sin porcentaje, sin anillo.
+- D4 función `bt_bubble` en «Más → Funciones», activada por defecto (no entra en `FEATURE_DEFAULTS`).
+- D5 sin commit/push/merge/reset sin autorización nueva y explícita.
+- La burbuja se inserta en `activities()` justo tras `pomo`; no se toca `PILL_ORDER` ni `BUB_MAX` (2).
+- B6-D1 hover sobre burbuja = solo tooltip, isla compacta; hover sobre píldora = expande a inicio.
+- B6-D2 clic en burbuja = abrir su página; clic en píldora = expandir a inicio.
+- B6-D3 etiquetas: Llamada, Música, Pomodoro, Grabación, Recordatorio, Despliegues, Descargas, Audio,
+  Presencia, Temporizador. Bluetooth sin etiqueta (usa el nombre del dispositivo).
+- B6-D4 se quita la redundancia: `Grabando`→`Grabación`, `Descargando x`→`Descargas · x`,
+  `En llamada`→`Llamada`. Sin cambios en colores ni geometría (B6-D5).
 
-## Archivos principales
-- Nuevos: `isla_dinamica/platform/{desktop,chain,doctor,features,notify,dnd,lock,screen,idle,clipboard,capture,record,appearance,session,apps,audio,shell,placement}.py`,
-  `isla_dinamica/ui/placement.py`, `tools/`, `extras/gnome-shell/`, `Makefile`,
-  `docs/ESCRITORIOS.md`, `tests/unit/test_*.py` (detección, cadenas, arquitectura, herramientas),
-  `tests/{x11_smoke.sh,docker/*}`.
-- Modificados: `install.sh`, `plan.md`, este handoff, `README.md`, `docs/DOCUMENTACION.md`, `main.py`,
-  `core.py`, `services/*`, `pages/*`, `ui/*`, `util/proc.py`, `window.py`, `tests/harness.py`.
-- La extensión de GNOME (`isla-dinamica@bitbro404.github.io`) es **provisional**: JS validado solo con
-  `node --check`; no se pudo ejecutar en GNOME.
+## Archivos modificados (esta tarea)
+- `isla_dinamica/ui/bubbles.py`: `bluetooth_activity(devices)`, `_battery_pct(value)`, rama en `activities()`
+  controlada por `c.feature("bt_bubble")`, campo `label` en cada actividad y `bubble_tip(act)`; `_set_bubbles`
+  usa `bubble_tip`.
+- `isla_dinamica/pages/bluetooth.py`: `feature("bt_bubble", "Burbuja Bluetooth", …)`.
+- `isla_dinamica/ui/dock.py`: `_on_drag_end(_g, dx, dy)` → clic sin movimiento llama a `_tap()` (B6.8).
+- `isla_dinamica/window.py`: `_tap()`/`_tapped()` (B6.8), `_set_hover(value, bubble=None)` (hover sobre burbuja no expande; con `bubble`
+  abre esa página), `_bubble_clicked(i, ev)` conectado a cada widget de burbuja (clic real navega aunque
+  `_bubble_at()` falle) y `_on_click` que delega en él.
+- `tests/unit/test_bubbles.py`: 6 pruebas Bluetooth + 4 de `bubble_tip`/etiquetas; `tests/unit/test_bt_feature.py`:
+  2 pruebas; `tests/unit/test_bubble_interaction.py` (nuevo): 7 pruebas de hover/clic (B6.7 incluido).
+- `tests/fixtures/bluetooth_demo.py`: dispositivo falso para el arnés (`BT_NAME`, `BT_BATTERY`, `BT_ICON`,
+  `BT_CONNECTED`, `BT_DEBUG`); imprime `bubble_tip`.
+- `tests/harness.py`: «bubble»/`bubble2` simulan clic (`_set_hover(True, bubble=i)`).
+- `README.md`, `docs/DOCUMENTACION.md`, `plan.md`, este handoff.
 
-## Pruebas ejecutadas y resultados (2026-11-21)
-- `make check` → `compileall` OK + **218 pruebas unitarias OK** (incluye `test_architecture.py`).
-- `python3 -m isla_dinamica --doctor` (Budgie/Wayland, backend layer-shell) → 15 funciones: Budgie
-  Dispatcher/DND, centro no disponible, Budgie Screenlock, wlopm, swayidle, wl-paste, grim+slurp,
-  wf-recorder, GNOME color-scheme/night light/SessionManager, wpctl y pw-play.
-- `--doctor` forzado a X11/LXDE → backend X11, Gtk.Clipboard, XScreenSaver y ffmpeg (X11).
-- XWayland (`GDK_BACKEND=x11 ISLA_RELAUNCHED=1 python3 isla.py`, 7 s) → solo `Got SIGINT, exiting.`,
+## Pruebas ejecutadas y resultados
+- `make check` → `compileall` OK + **226 pruebas OK** (218 previas + 8 nuevas).
+- RED inicial confirmado: `ImportError: cannot import name 'bluetooth_activity'`; RED del interruptor:
+  `AssertionError: 0 != 1`; ambos corregidos en GREEN.
+- `BT_DEBUG=1 BT_NAME=Auriculares BT_BATTERY=82 python3 tests/harness.py pill --setup
+  tests/fixtures/bluetooth_demo.py --out /tmp/opencode/isla-bt` → tooltip `Auriculares · 82%`, PNG generado,
   sin tracebacks.
-- `bash tests/x11_smoke.sh` (Docker: Xvfb + Openbox) → 0 tracebacks; ventana DOCK, arriba, sin barra de
-  tareas, arrastrable y acoplable; capturas en `tests/capturas/x11/`.
-- `python3 tests/harness.py pill home notifs --out /tmp/opencode/isla-final` → tres PNG, sin errores;
-  la isla instalada se reinició al terminar.
-- `./install.sh` → lanzador en `~/.local/bin/isla-dinamica`, autoarranque con la ruta real del usuario y
-  `isla-dinamica --doctor` funcionando desde la copia instalada.
-- `python3 -m json.tool .../metadata.json` y `node --check .../extension.js` → OK.
+- Misma prueba con `BT_BATTERY=none` → tooltip `Auriculares`; con `BT_CONNECTED=0` → sin burbuja.
+- Comprobación programática de las PNG: ancho 694 px con burbuja frente a 646 px sin ella; 191 px azules en
+  la zona de la burbuja con batería frente a 35 px sin batería (solo el acento del icono).
+- B5 ejecutado: `make check` → 226 OK; `make doctor` → 15 funciones sin cambios (Budgie/layer-shell);
+  `make check-x11` (Docker + Xvfb + Openbox) → 0 tracebacks, ventana DOCK/arriba/arrastrable.
+- B6 ejecutado: RED de `bubble_tip` (`ImportError`) y de hover (`AssertionError: True is not false`), ambos
+  corregidos. B6.7 (clic real no navegaba) RED por `AttributeError: _bubble_clicked`, GREEN con manejador por widget.
+  `make check` → **237 pruebas OK** (226 + 4 de tooltips + 7 de interacción); `make doctor` sin
+  cambios; `make check-x11` → 0 tracebacks. Arnés `pill`, `bubble` y `bt` en `/tmp/opencode/isla-b6/` con tooltip
+  `Auriculares · 82%`; el clic abrió la página (769×660 y 767×190 frente a 695×59 de la píldora).
 
 ## Fallos conocidos / bloqueos
-- No hay GNOME, KDE, Cinnamon, XFCE, LXQt ni sway en esta máquina: D4 exige validación del usuario en VM.
-- En Budgie/Wayland el nombre `org.budgie_desktop.Raven` no está en el bus: `--doctor` marca «Centro de
-  avisos: no disponible» y el botón se oculta (comportamiento previsto por D2).
-- El JavaScript de la extensión no se pudo probar aquí; está marcado como provisional en
-  `docs/ESCRITORIOS.md`.
+- Este modelo no puede ver imágenes: las capturas se generaron y se comprobaron por píxeles, pero la revisión
+  visual la debe hacer el usuario.
+- El primer `GetManagedObjects` asíncrono de BlueZ sobrescribía el dispositivo falso del fixture; se corrigió
+  restaurando el dict en `on_change`. No afecta al código de producción.
+- Del trabajo universal anterior sigue pendiente la validación en VM de GNOME, KDE, XFCE, Cinnamon, LXQt y sway;
+  la extensión GNOME es provisional (solo `node --check`). No es parte de esta tarea.
 
-## Próximo paso exacto (usuario)
-Seguir `docs/ESCRITORIOS.md` en una VM por escritorio: ejecutar `isla-dinamica --doctor`, comprobar la
-píldora/panel/arrastre, avisos, DND, portapapeles, captura, grabación, oscuro, sesión y audio, y comparar
-con la tabla de resultados esperados. Prioridad: GNOME con extensión, KDE, XFCE y un compositor wlroots
-distinto de labwc. Después de esa validación se pueden escribir los resúmenes/memoria y decidir commits.
+## Próximo paso exacto
+**B7 (nueva, 2026-11-21):** burbuja «+N» + página «Tareas en curso». Plan escrito en `plan.md` → «Ampliación B7»,
+decisiones B7-D1…D4 confirmadas; aprobado y **hecho con TDD** (259 pruebas OK, X11 sin tracebacks, instalado).
+Archivos B7: `ui/bubbles.py`, `ui/style.py`, `window.py`, `pages/tasks.py` (nuevo), `pages/__init__.py`,
+`tests/unit/test_tasks_page.py` (nuevo), `test_bubbles.py`, `test_bubble_interaction.py`,
+`tests/fixtures/tasks_demo.py` (nuevo), `tests/harness.py`, README, DOCUMENTACION. Falta validación del usuario.
+
+B6.8 hecho (segunda sesión, 2026-11-21): el clic real no navegaba porque el `Gtk.GestureDrag` en fase CAPTURE se
+queda con el botón (log real: solo `_on_press`/`_on_drag_end`, nunca `_on_click`/`_bubble_clicked`). Ahora
+`ui/dock.py::_on_drag_end` trata soltar sin moverse como clic → `window.py::_tap()`; `_tapped()` evita doble
+acción. `make check` → 244 OK. `./install.sh` ejecutado: copia instalada = repo, sin la instrumentación temporal.
+B6.9: comprobado que hover/clic valen para las 11 burbujas; +2 pruebas de caracterización (246 OK), sin
+cambios de producción.
+1. Pedir al usuario que confirme en su escritorio: hover sobre burbuja → tooltip sin expandir; clic en burbuja →
+   abre su página; clic en la píldora → Inicio; arrastrar la isla sigue funcionando.
+2. Solo tras esa confirmación: escribir `.ai/summaries/2026-11-21-burbuja-bluetooth.md`, actualizar
+   `summaries/INDEX.md` y dejar este handoff sin tarea activa. Preguntar si quiere commit/push; no hacerlo por
+   defecto.
+
+## Preguntas pendientes
+- ¿Confirma el usuario el nuevo comportamiento de hover (tooltip) y clic (abrir página)?
+- ¿Quiere commit/push de esta tarea? (No autorizado todavía.)
 
 ## Qué no se debe repetir
-- No commits, pushes ni resets sin permiso explícito.
-- No escribir adaptadores de escritorio fuera de `platform/` (lo detecta `test_architecture.py`).
-- No ejecutar `install.sh --deps` ni `--gnome-extension` sin la confirmación interactiva del usuario.
-- Antes de usar el arnés o `install.sh`, revisar `git status`: hay cambios preexistentes del usuario.
-- El inventario de dependencias y el contexto medido de Budgie/labwc están en `plan.md` → «Contexto actual».
+- No validar clics emitiendo señales directamente sobre widgets: en el escritorio real el gesto de arrastre
+  se queda con el `button-release`; el clic se trata en `drag-end`.
+- No dejar instrumentación temporal en la copia instalada; `./install.sh` la sustituye por el repo.
+- No leer `org.bluez` en pruebas unitarias: la lógica de selección es pura y ya está cubierta.
+- No escribir nombres de escritorio fuera de `platform/` (lo comprueba `test_architecture.py`).
+- No ampliar `BUB_MAX` ni meter Bluetooth en `PILL_ORDER` sin pedirlo.
+- No ejecutar `install.sh` ni el arnés sin antes revisar `git status`: el arnés detiene y reinicia la isla
+  instalada.
+- No dar por aceptada la tarea ni escribir el resumen sin la validación del usuario.

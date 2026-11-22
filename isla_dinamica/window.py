@@ -9,7 +9,7 @@ from .ui.widgets.art import Art, GREEN, vivid_color
 from .util.fmt import hm
 from .pages import PAGE_CLASSES
 from .ui.pill import PillState, pick_pill
-from .ui.bubbles import activities
+from .ui.bubbles import activities, bubble_slots
 from .ui.dock import DockMixin
 from .ui.paint import PaintMixin
 from .ui.bubbles import BubblesMixin
@@ -48,6 +48,7 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
         self.vertical = False       # píldora en vertical (pegada a un borde lateral)
         self.drag = None            # arrastre en curso
         self._drag_end = 0.0
+        self._tap_t = 0.0           # cuándo se trató el último clic desde el gesto de arrastre
         self.poff = [0.0, 0.0]      # desfase que se anima hacia 0 al soltar
         self.pvel = [0.0, 0.0]
         self._last_xy = (0, 0)      # posición (arriba-izquierda) pedida por última vez
@@ -94,7 +95,7 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
         self.bub_box = Gtk.Box(spacing=BUB_GAP)
         self.bub_box.set_no_show_all(True)
         self.bub_widgets = []
-        for _ in range(BUB_MAX):
+        for i in range(BUB_MAX + 1):          # +1: la burbuja «+N» de las tareas que no caben
             st = Gtk.Stack()
             st.set_size_request(H, H)
             img = Gtk.Image()
@@ -102,11 +103,17 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
             art.set_halign(Gtk.Align.CENTER)
             st.add_named(img, "icon")
             st.add_named(art, "art")
+            count = Gtk.Label()
+            count.get_style_context().add_class("bub-count")
+            st.add_named(count, "count")
             img.show()
             art.show()
+            count.show()
             st.set_no_show_all(True)
+            # clic directo en la burbuja: no depende de que _bubble_at() acierte con el ratón real
+            st.connect("button-release-event", lambda _w, ev, i=i: self._bubble_clicked(i, ev))
             self.bub_box.pack_start(st, False, False, 0)
-            self.bub_widgets.append((st, img, art))
+            self.bub_widgets.append((st, img, art, count))
         self.outer.pack_start(self.bub_box, False, False, 0)
         ev.add(self.outer)
 
@@ -203,7 +210,8 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
             low = 150 if self.c_center.get_visible_child_name() == "level" else 84
             size = (H, max(low, min(300, nat + 4)))
         self._set_pad(name == "card")
-        bub = [a for a in self._acts if a["key"] not in self._shown][:BUB_MAX] if name == "compact" else []
+        bub = bubble_slots(self._acts, self._shown, BUB_MAX, self.core.feature("bub_more")) \
+            if name == "compact" else []
         if [a["key"] for a in bub] != [a["key"] for a in self.bubbles] or bub:
             self._set_bubbles(bub)
         ext = len(bub) * (H + BUB_GAP)
@@ -262,16 +270,21 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
         self._set_hover(False)
         return False
 
-    def _set_hover(self, value):
+    def _set_hover(self, value, bubble=None):
+        """`bubble` (índice) se usa al hacer clic: abre esa página y expande. Sin él, entrar en una
+        burbuja solo deja el tooltip; entrar en la píldora expande igual que antes."""
         if self._hover_src:
             GLib.source_remove(self._hover_src)
             self._hover_src = None
+        if value and bubble is not None:
+            if not 0 <= bubble < len(self.bubbles):
+                return False
+            self.page = self.bubbles[bubble]["page"]
+            self._nav_t = time.monotonic()
+            self._opened(self.page)
         if value and not self.hover:
-            i = self._bubble_at()
-            if i is not None:
-                self.page = self.bubbles[i]["page"]
-                self._nav_t = time.monotonic()
-                self._opened(self.page)
+            if bubble is None and self._bubble_at() is not None:
+                return False          # sobre una burbuja: solo tooltip, la isla sigue compacta
             self.core.radios.refresh()
             ev = self.core.event
             self.card_hold = bool(self.view == "card" and ev and time.monotonic() < ev["until"])
@@ -287,6 +300,31 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
                 obj.on_collapse()
         self.refresh()
         return False
+
+    def _tap(self):
+        """Clic (pulsar y soltar sin arrastrar) visto por el gesto: en la vista compacta, burbuja →
+        su página; píldora → Inicio. En las demás vistas el clic es de sus propios botones."""
+        if self.view != "compact":
+            return
+        self._tap_t = time.monotonic()
+        i = self._bubble_at()
+        self._set_hover(True, bubble=i)
+
+    def _tapped(self):
+        """¿Este button-release ya lo trató el gesto? (donde sí llega, no se repite la acción)"""
+        return time.monotonic() - self._tap_t < 0.3
+
+    def _bubble_clicked(self, i, ev):
+        """Clic en la burbuja `i`: abre su página aunque el puntero no caiga en el rectángulo calculado.
+        Devuelve True para que el evento no siga hacia el EventBox (que expandiría a Inicio)."""
+        if ev.button != 1:
+            return False
+        if self._tapped():
+            return True
+        if time.monotonic() - self._drag_end < 0.3:
+            return False
+        self._set_hover(True, bubble=i)
+        return True
 
     def _on_click(self, _w, ev):
         if ev.button != 1:
@@ -305,6 +343,11 @@ class IslandWindow(PillViewMixin, BubblesMixin, PaintMixin, DockMixin, Gtk.Windo
             self.core.refresh()
             return True
         if self.view == "compact":
+            if self._tapped():
+                return True
+            i = self._bubble_at()
+            if i is not None:
+                return self._bubble_clicked(i, ev)
             self._set_hover(True)
             return True
         return False

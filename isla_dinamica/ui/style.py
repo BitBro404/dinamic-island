@@ -28,6 +28,7 @@ window { background: transparent; }
 .c-text { font-weight: 600; font-size: 13px; }
 .c-time { font-weight: 600; font-size: 13px; color: rgba(255,255,255,0.55); }
 .dim { color: #8e8e93; font-size: 12px; }
+.bub-count { font-weight: 700; font-size: 12px; color: #ffffff; }
 .small { font-size: 11px; }
 .title { font-weight: 700; font-size: 15px; }
 .subtitle { font-weight: 600; font-size: 13px; }

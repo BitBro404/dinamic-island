@@ -97,11 +97,15 @@ class DockMixin:
         if win:
             win.set_cursor(Gdk.Cursor.new_from_name(self.get_display(), name) if name else None)
 
-    def _on_drag_end(self, *_):
+    def _on_drag_end(self, _g=None, dx=0.0, dy=0.0):
         d, self.drag = self.drag, None
         dbg("drag-end", bool(d and d["moving"]))
         if d and d["moving"]:
             self._drop()
+        elif math.hypot(dx, dy) < DRAG_MIN and time.monotonic() - self._drag_end >= 0.3:
+            # soltar sin moverse es un clic: el gesto en fase CAPTURE puede quedarse con el
+            # button-release y no dejarlo llegar al EventBox ni a las burbujas
+            self._tap()
 
     def _on_press(self, _g, x, y):
         self.drag = {"start": self._pointer(), "moving": False}

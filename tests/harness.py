@@ -7,7 +7,7 @@
 - Detiene la isla que esté corriendo y arranca la versión de este proyecto.
 - Ignora el ratón real (no se abre ni se cierra sola mientras se prueba).
 - La página especial «pill» captura la isla cerrada (la píldora).
-- «bubble» / «bubble2» simulan el ratón sobre la 1.ª / 2.ª burbuja de actividades.
+- «bubble» / «bubble2» / «bubble3» simulan un clic en la 1.ª / 2.ª / 3.ª burbuja (la 3.ª es «+N»; abren su página).
 - Por cada página: la abre, espera y guarda <out>/<página>.png (sólo la zona de la isla, monitor principal).
 - --setup archivo.py: debe definir setup(core) para inyectar datos falsos antes de abrir las páginas.
 - Al terminar vuelve a arrancar la isla instalada (~/.local/bin/isla-dinamica).
@@ -93,12 +93,12 @@ def main():
                     win.hover = False
                     win.page = "home"
                     win.refresh()
-                elif name.startswith("bubble"):  # «bubble», «bubble2»: ratón sobre la 1.ª o 2.ª burbuja
+                elif name.startswith("bubble"):  # «bubble», «bubble2»: clic en la 1.ª o 2.ª burbuja
                     i = int(name[6:] or 1) - 1
                     if len(win.bubbles) > i:
                         bx, by = win._bubble_rects(*win.cur)[i]
                         win._pointer = lambda bx=bx, by=by: (bx + 17, by + 17)
-                        win._set_hover(True)
+                        win._set_hover(True, bubble=i)
                         del win._pointer
                 else:
                     win.hover = True

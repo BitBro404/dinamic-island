@@ -2,8 +2,8 @@
 
 Una píldora tipo «Dynamic Island» arriba al centro de la pantalla para **cualquier escritorio Linux**
 (Wayland o X11). Muestra la música, las llamadas, el temporizador, las descargas, los despliegues y los
-avisos. Al pasar el ratón por encima se expande en un panel con ajustes rápidos y páginas: Wi‑Fi,
-Bluetooth, GitHub, Teams y correo, clima, sistema, presencia y más.
+avisos. Al pasar el ratón por encima de la píldora se expande en un panel con ajustes rápidos y páginas:
+Wi‑Fi, Bluetooth, GitHub, Teams y correo, clima, sistema, presencia y más.
 
 Está hecha en Python 3 + GTK3 (PyGObject). Usa `gtk-layer-shell` cuando el compositor lo admite y,
 si no, coloca una ventana X11 con el mismo aspecto; en GNOME puede apoyarse en una extensión
@@ -45,7 +45,7 @@ Si falta una herramienta, la isla sigue funcionando; la función se oculta o mue
 | Avisos y No molestar | Monitor genérico de `org.freedesktop.Notifications` + el daemon del escritorio (Budgie, GNOME, KDE, XFCE, mako, SwayNC, dunst…). Centro de avisos nativo o de la extensión; si no hay, se oculta |
 | Volumen y sonidos | `wpctl` → `pactl`; `pw-play` → `paplay` → `canberra-gtk-play` |
 | Wi‑Fi, red, VPN, modo avión | NetworkManager (`nmcli`), `rfkill`, `ip`, `ss` |
-| Bluetooth | BlueZ |
+| Bluetooth | BlueZ; con la función «Burbuja Bluetooth» (activa por defecto), el primer dispositivo conectado aparece como burbuja con su batería |
 | Copias (portapapeles) | `wl-paste --watch` en wlroots; `Gtk.Clipboard` en X11/XWayland. Mismo filtro de secretos |
 | Capturas | `grim`+`slurp`, `spectacle`, extensión GNOME, `maim`, `scrot` o portal |
 | Grabar pantalla | `wf-recorder`, `ffmpeg` x11grab, extensión GNOME o portal |
@@ -140,7 +140,15 @@ donde puedes activar o desactivar cada función. Los cambios se guardan en
 | **Presencia (cámara)** | Paquetes OpenCV, `swayidle` y `wlopm`. Viene **apagada**: actívala en Funciones o con su casilla del inicio. Más detalles abajo. |
 | **Audio en vivo / Cámara y micrófono** | PipeWire. |
 | **Red y VPN / Monitor del sistema / Descargas / Servidores locales / Recordatorios** | Nada más. |
+| **Burbuja Bluetooth** | BlueZ. Muestra junto a la píldora una burbuja redonda para el primer dispositivo conectado (por nombre), con su icono y un anillo con el porcentaje de batería; al pasar el ratón se ve `Nombre · NN%`. Si el dispositivo no reporta batería, se ve solo el nombre. Viene activada. |
+| **Burbuja de tareas** | Si hay más actividades de las que caben (2 burbujas), muestra una tercera `+N`; al hacer clic abre «Tareas en curso» con todo lo que está en marcha, y cada fila abre su página. Viene activada. |
 | **Hora en formato 24 h** | Apágala para ver la hora en 12 h. |
+
+**Burbujas de actividades:** pasar el ratón por una burbuja muestra un tooltip con el nombre de la opción y lo que
+está pasando (`Pomodoro · Enfoque · 12:30`, `Música · Canción · Artista`, `Grabación · 00:12`…); en Bluetooth se ve
+el nombre del dispositivo y su batería (`BT · 80%`). La isla no se expande con el ratón encima de una burbuja:
+**haz clic** en ella para abrir su página. El clic en la píldora sigue abriendo Inicio.
+Si no caben todas, la burbuja `+N` abre la lista **Tareas en curso**.
 
 ### Presencia (bloquear si no hay nadie)
 
@@ -273,8 +281,20 @@ python3 tests/harness.py github ms home --setup tests/fixtures/ms_demo.py --out 
 ```
 
 El arnés detiene la isla instalada, abre las páginas pedidas, guarda un PNG por página y vuelve a arrancar
-la isla instalada. Las páginas especiales son `pill` (la píldora cerrada) y `bubble`/`bubble2` (las
-burbujas).
+la isla instalada. Las páginas especiales son `pill` (la píldora cerrada) y `bubble`/`bubble2`/`bubble3` (clic
+en la 1.ª/2.ª/3.ª burbuja, que abre su página; la 3.ª es `+N`). Para probar la burbuja `+N` y «Tareas en curso»:
+`python3 tests/harness.py pill bubble3 tasks --setup tests/fixtures/tasks_demo.py --out /tmp/capturas-tareas`.
+Para probar la burbuja Bluetooth sin dispositivos reales:
+
+```bash
+BT_NAME=Auriculares BT_BATTERY=82 python3 tests/harness.py pill \
+  --setup tests/fixtures/bluetooth_demo.py --out /tmp/capturas-bt
+BT_BATTERY=none python3 tests/harness.py pill --setup tests/fixtures/bluetooth_demo.py \
+  --out /tmp/capturas-bt-sin-bateria
+```
+
+El fixture acepta `BT_NAME`, `BT_BATTERY` (`none` para probar sin porcentaje), `BT_ICON` y `BT_CONNECTED=0`
+(para comparar sin burbuja); con `BT_DEBUG=1` imprime el tooltip calculado.
 
 ### Añadir una página o función
 
@@ -293,6 +313,7 @@ burbujas).
 | Síntoma | Solución |
 |---|---|
 | La isla no aparece | Ejecuta `isla-dinamica --doctor`: dice el escritorio detectado y el backend elegido. Faltan paquetes base o hay un error de arranque; prueba `ISLA_DEBUG=1 python3 isla.py`. |
+| Tengo un dispositivo Bluetooth conectado pero no veo su burbuja | La isla en marcha usa la copia instalada, no el repo. Ejecuta `./install.sh` (instala y reinicia) y comprueba que la función «Burbuja Bluetooth» está activa en ⋯ → Funciones. El arnés de capturas también reinicia esa copia al terminar. |
 | GitHub pide iniciar sesión | `gh auth login` y luego pulsa Actualizar. |
 | No llegan los mensajes de Teams o del correo | Deja Teams y Outlook web abiertos en Chrome con las notificaciones permitidas, y desactiva «No molestar». |
 | Presencia dice «Sin OpenCV» | `sudo apt install python3-opencv opencv-data` |

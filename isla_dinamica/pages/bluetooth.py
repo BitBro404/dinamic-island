@@ -3,7 +3,11 @@ from gi.repository import Gtk
 
 from ..ui.gtk import button, clear
 from .base import Page
-from .registry import page
+from .registry import feature, page
+
+
+feature("bt_bubble", "Burbuja Bluetooth",
+        "Muestra el dispositivo Bluetooth conectado y su batería como burbuja junto a la píldora")
 
 
 class BluetoothPage(Page):
