@@ -29,7 +29,7 @@ from .services.servers import Servers
 from .services.sysmon import SysMon
 from .services.system import Drives, Modes
 from .services.weather import Weather
-from .util.fmt import CLOCK, hm
+from .util.fmt import CLOCK
 from .util.links import GITHUB_APP, OUTLOOK_URL, TEAMS_APP
 from .util.proc import dbg, launch_desktop, open_uri, play_sound
 from .util.safety import desktop_matches_app, notif_debug_line, open_web
@@ -192,13 +192,13 @@ class Core:
         name = (GLib.get_real_name() or "").split(" ")[0]
         if not name or name == "Unknown":
             name = GLib.get_user_name()
+        # la hora ya va fija a la izquierda de la isla: el saludo no la repite
         if back:
-            right = f"{self.battery.percent:.0f}%" if self.battery.present else hm()
+            extra = {"right": f"{self.battery.percent:.0f}%"} if self.battery.present else {}
             self.show_event(3.5, kind="pill", icon="weather-clear-symbolic", text=f"Bienvenido de vuelta, {name}",
-                            right=right)
+                            **extra)
         else:
-            self.show_event(3.5, kind="pill", icon="face-smile-symbolic", text=f"Hola, {name}",
-                            right=hm())
+            self.show_event(3.5, kind="pill", icon="face-smile-symbolic", text=f"Hola, {name}")
         return False
 
     def _on_sleep(self, _c, _s, _p, _i, _sig, params):
