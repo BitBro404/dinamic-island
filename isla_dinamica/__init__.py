@@ -3,7 +3,11 @@
 Aquí se fijan las versiones de GObject Introspection una sola vez, antes de que cualquier
 módulo haga `from gi.repository import Gtk`.
 """
-import gi
+from .platform.session_env import fix_environ
+
+fix_environ()     # lanzada desde Plank (XWayland): volver a Wayland antes de que GTK abra la pantalla
+
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
