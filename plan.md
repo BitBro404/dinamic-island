@@ -248,6 +248,13 @@ python3 tests/harness.py github ghacct ghrepo --wait 6 --setup tests/fixtures/gi
   abierto; punto azul en la píldora. Arreglo: `show_all()` no muestra una caja con `no_show_all`.
   393 pruebas OK, instalado. No visto aún con una PR nueva ni un commit por bajar reales.
 
+## Ampliación P9 (2026-11-22): Inicio igual en los dos monitores
+- Pedido: quitar el desplegable «Opciones» y dejar «Más opciones»; tras una prueba intermedia (ajustes arriba de
+  «Más» en el secundario), el usuario mandó una captura: Inicio completo (ajustes, accesos, DEV, Más opciones)
+  como en el portátil. Decisión: Inicio igual en todos los monitores, sin trato especial del secundario.
+- Hecho: quitados el desplegable, `_on_primary`, `Page._opts_slot` y `util/screens.py` (`primary_index`) con su
+  prueba (código muerto). 410 pruebas OK, instalado; captura de los dos monitores igual a la del usuario.
+
 ## Seguridad 2 (2026-11-22): revisión del código nuevo (GitHub/git, terminales, servidores, Docker)
 Revisión previa (S1–S9, 2026-11-21) cubría Wi-Fi, URLs, portapapeles, bloqueo, descargas y config 0600.
 Modelo de amenaza: otro usuario local; un repo o rama de terceros (clonado, descargado o de un colaborador);

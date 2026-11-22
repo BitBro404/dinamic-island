@@ -163,8 +163,7 @@ detenidos; la isla solo recuerda sus nombres). Si el demonio no responde, no se 
 **Inicio y sección DEV.** Bajo el volumen y los ajustes rápidos está **DEV**: GitHub, Servidores, Proyectos y
 Teams y correo a un clic, cada uno con su contador (revisiones y PR nuevas, servidores en marcha, repos por
 sincronizar, mensajes sin leer). Al final, **Más opciones** abre la página con las demás herramientas y funciones.
-En los monitores que no son el principal (el que declara el sistema o, si no, el de arriba a la izquierda),
-los ajustes rápidos y los accesos quedan tras el botón **Opciones** y se vuelven a ocultar al cerrar la isla.
+Inicio es igual en todos los monitores.
 
 **Punto azul de novedades.** Cuando el fetch encuentra commits por bajar o aparece una PR nueva (de otros en tus
 repos, o una revisión pedida), salta una alerta y la píldora muestra un punto azul. Se apaga al abrir GitHub

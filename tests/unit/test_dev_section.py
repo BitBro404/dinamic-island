@@ -1,4 +1,4 @@
-"""Sección DEV: aviso de PR nuevas, punto de novedades de git/GitHub y monitor principal (sin GTK)."""
+"""Sección DEV: aviso de PR nuevas, punto de novedades de git/GitHub y (sin GTK)."""
 import os
 import sys
 import unittest
@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from isla_dinamica.services.devnews import DevNews  # noqa: E402
 from isla_dinamica.services.github import inbox_item  # noqa: E402
-from isla_dinamica.util.screens import primary_index  # noqa: E402
 from test_github_alerts import bare_github, raw  # noqa: E402
 
 
@@ -75,19 +74,6 @@ class DevNewsTest(unittest.TestCase):
         d.seen()
         d.seen()
         self.assertEqual(len(calls), 2)
-
-
-class PrimaryMonitorTest(unittest.TestCase):
-    def test_declared_primary_wins(self):
-        self.assertEqual(primary_index([(1601, 0), (0, 0)], primary=0), 0)
-
-    def test_without_primary_the_one_at_the_origin(self):
-        # labwc no declara principal: el de arriba a la izquierda (el portátil en 0,0)
-        self.assertEqual(primary_index([(1601, 0), (0, 0)]), 1)
-        self.assertEqual(primary_index([(0, 300), (1920, 0)]), 0)
-
-    def test_empty(self):
-        self.assertIsNone(primary_index([]))
 
 
 if __name__ == "__main__":

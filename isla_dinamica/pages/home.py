@@ -1,5 +1,5 @@
-"""Página de inicio: reloj, música, volumen, ajustes rápidos, accesos, sección DEV y «Más opciones».
-En los monitores que no son el principal, los ajustes rápidos y los accesos quedan tras el botón «Opciones»."""
+"""Página de inicio: reloj, música, volumen, ajustes rápidos, accesos, sección DEV y «Más opciones»
+(igual en todos los monitores)."""
 from gi.repository import Gtk
 
 from ..services.media import Volume
@@ -10,7 +10,6 @@ from ..ui.widgets.audio import Spectrum
 from ..ui.widgets.tile import Tile
 from ..ui.widgets.weather_icon import WeatherIcon
 from ..util.fmt import bat_icon, fecha, fmt_secs, hm
-from ..util.screens import primary_index
 from ..util.links import GITHUB_APP, TEAMS_APP
 from .base import Page
 from .registry import feature, page
@@ -138,19 +137,7 @@ class HomePage(Page):
         cols = 5 if len(tiles) > 8 else 4
         for i, t in enumerate(tiles):
             grid.attach(t, i % cols, i // cols, 1, 1)
-        # en el monitor secundario: ajustes rápidos y accesos ocultos tras «Opciones» (los rellena el bloque de abajo)
-        self.h_opts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.h_opts.pack_start(grid, False, False, 0)
-        self.h_secondary = not self._on_primary()
-        if self.h_secondary:
-            inner = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
-            self.h_opts_icon = icon("pan-down-symbolic")
-            inner.pack_start(self.h_opts_icon, False, False, 0)
-            self.h_opts_lbl = label("Opciones", "small", ellipsize=False)
-            inner.pack_start(self.h_opts_lbl, False, False, 0)
-            box.pack_start(button("work", inner, self._toggle_opts, "Ajustes rápidos y accesos"), False, False, 0)
-            self.h_opts.set_no_show_all(True)
-        box.pack_start(self.h_opts, False, False, 0)
+        box.pack_start(grid, False, False, 0)
 
         # accesos
         acts = Gtk.Box(spacing=5, halign=Gtk.Align.CENTER)
@@ -181,9 +168,7 @@ class HomePage(Page):
         act("timer-symbolic", "Pomodoro", "Pomodoro", lambda: self.go("pomo"))
         act("alarm-symbolic", "Alarma", "Temporizador", lambda: self.go("timer"))
         act("system-shutdown-symbolic", "Energía", "Bloquear, suspender, reiniciar, apagar", lambda: self.go("power"))
-        self.h_opts.pack_start(acts, False, False, 0)
-        if not self.h_secondary:
-            self.h_opts.show_all()
+        box.pack_start(acts, False, False, 0)
 
         # DEV: GitHub, servidores, proyectos y Teams/correo a un clic
         self.h_dev = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -222,35 +207,6 @@ class HomePage(Page):
         box.pack_start(button("work", more, lambda: self.go("more"), "Herramientas, funciones y ajustes"),
                        False, False, 0)
         return box
-
-    def _on_primary(self):
-        """¿Esta isla está en el monitor principal? (el que declara el sistema o, si no, el de arriba a la izquierda)"""
-        try:
-            d = self.monitor.get_display()
-            mons = [d.get_monitor(i) for i in range(d.get_n_monitors())]
-            origins = [(m.get_geometry().x, m.get_geometry().y) for m in mons]
-            prim = d.get_primary_monitor()
-            idx = primary_index(origins, mons.index(prim) if prim in mons else None)
-            return idx is None or mons[idx] == self.monitor
-        except (AttributeError, TypeError, ValueError):
-            return True
-
-    def _toggle_opts(self, show=None):
-        show = not self.h_opts.get_visible() if show is None else show
-        if show:                              # no_show_all: show_all() sobre la caja no hace nada
-            for ch in self.h_opts.get_children():
-                ch.show_all()
-            self.h_opts.show()
-        else:
-            self.h_opts.hide()
-        self.h_opts_icon.set_from_icon_name("pan-up-symbolic" if show else "pan-down-symbolic", Gtk.IconSize.MENU)
-        self.h_opts_lbl.set_text("Ocultar opciones" if show else "Opciones")
-        self.refresh()
-
-    def on_collapse(self):
-        super().on_collapse()
-        if self.h_secondary and self.h_opts.get_visible():
-            self._toggle_opts(False)          # al cerrarse vuelve a quedar compacta
 
     def _set_count(self, key, n):
         lb = self.work_labels[key]
