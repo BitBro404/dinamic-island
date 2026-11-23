@@ -1,5 +1,6 @@
 """Sensor de presencia: si no hay nadie frente a la cámara ni teclado/ratón, bloquear y apagar la pantalla."""
 import os
+import random
 import threading
 import time
 
@@ -7,6 +8,8 @@ from gi.repository import GLib, Gio
 
 from ..platform.idle import IdleWatch  # noqa: F401  (se reexporta: tests y Presence la usan desde aquí)
 from ..util.proc import dbg
+from .identity import (MODEL_DIR, MODELS, PROMPT_TIMEOUT, RECENT_INPUT, Gallery, IdentityVerifier,
+                       ModelError, decide, ensure_models, next_sample_time)
 
 CHECK_EVERY = 10          # segundos entre revisiones de la cámara mientras estás inactivo
 _HELD = ("paused", "off_hours")
@@ -33,7 +36,8 @@ def in_schedule(dt, start="08:00", end="18:00", days=(0, 1, 2, 3, 4)):
 
 _LABELS = {"off": "Apagado", "no_cv": "Sin OpenCV", "off_hours": "Fuera de horario", "paused": "En pausa",
            "active": "Vigilando", "watching": "Vigilando", "present": "Te ve", "warning": "Bloqueando",
-           "locked": "Bloqueado", "lock_failed": "No se pudo bloquear"}
+           "locked": "Bloqueado", "lock_failed": "No se pudo bloquear", "other": "Otra persona",
+           "confirm": "¿Eras tú?"}
 LOCK_FAILED = "No se pudo bloquear la sesión: la pantalla sigue encendida"
 
 
@@ -111,7 +115,8 @@ class FaceDetector:
     """¿Hay una cara frente a la cámara? Todo en memoria: ninguna imagen se guarda.
     detect() → True / False, o None si no se puede saber (sin OpenCV, cámara ocupada o con error)."""
     CASCADES = "/usr/share/opencv4/haarcascades"
-    YUNET = os.path.expanduser("~/.local/share/isla-dinamica/face_detection_yunet.onnx")
+    YUNET = os.path.join(MODEL_DIR, MODELS["yunet"][0])
+    LEGACY_YUNET = os.path.expanduser("~/.local/share/isla-dinamica/face_detection_yunet.onnx")
     INSTALL = "Instala OpenCV: sudo apt install python3-opencv opencv-data"
     FRAMES, WARMUP = 4, 5
 
@@ -119,8 +124,21 @@ class FaceDetector:
         self.device, self.cascade_dir = device, cascade_dir
         self.cv, self.haar, self.yunet, self.error = None, [], None, None
 
+    def _load_yunet(self):
+        """YuNet puede descargarse después de arrancar: se carga en la primera revisión útil."""
+        if self.yunet is not None or self.cv is None or not hasattr(self.cv, "FaceDetectorYN"):
+            return
+        for path in (self.YUNET, self.LEGACY_YUNET):
+            if os.path.exists(path):
+                try:
+                    self.yunet = self.cv.FaceDetectorYN.create(path, "", (320, 240), 0.7)
+                    return
+                except self.cv.error:
+                    pass
+
     def available(self):
         if self.cv:
+            self._load_yunet()
             return True
         try:
             import cv2
@@ -136,53 +154,65 @@ class FaceDetector:
         if not haar:
             self.error = self.INSTALL
             return False
-        if os.path.exists(self.YUNET) and hasattr(cv2, "FaceDetectorYN"):
-            try:
-                self.yunet = cv2.FaceDetectorYN.create(self.YUNET, "", (320, 240), 0.7)
-            except cv2.error:
-                self.yunet = None
         self.cv, self.haar, self.error = cv2, haar, None
+        self._load_yunet()
         return True
 
-    def detect_frame(self, frame):
+    def faces(self, frame):
+        """Caras detectadas en una imagen: filas [x, y, w, h, …] (YuNet añade puntos y score)."""
         cv2 = self.cv
         if self.yunet is not None:
             h, w = frame.shape[:2]
             self.yunet.setInputSize((w, h))
-            _n, faces = self.yunet.detect(frame)
-            if faces is not None and len(faces):
-                return True
+            _n, found = self.yunet.detect(frame)
+            if found is not None:
+                return [list(map(float, row)) for row in found]
         gray = cv2.equalizeHist(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        out = []
         for i, c in enumerate(self.haar):
             imgs = (gray, cv2.flip(gray, 1)) if i else (gray,)     # perfil: los dos lados
             for img in imgs:
-                if len(c.detectMultiScale(img, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))):
-                    return True
-        return False
+                for x, y, w, h in c.detectMultiScale(img, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40)):
+                    out.append([float(v) for v in (x, y, w, h)])
+        return out
+
+    def detect_frame(self, frame):
+        return bool(self.faces(frame))
+
+    def capture(self, frame=None):
+        """(imagen, caras) con una sola apertura de cámara; sin imagen y sin datos → (None, [])."""
+        if frame is None:
+            if not self.available():
+                return None, []
+            cv2 = self.cv
+            cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
+            try:
+                if not cap.isOpened():
+                    return None, []
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                last = (None, [])
+                for i in range(self.WARMUP + self.FRAMES):   # los primeros salen oscuros (autoexposición)
+                    ok, shot = cap.read()
+                    if not ok:
+                        continue
+                    found = self.faces(shot) if i >= self.WARMUP else []
+                    if found:
+                        return shot, found
+                    last = (shot, [])
+                return last
+            except cv2.error:
+                return None, []
+            finally:
+                cap.release()
+        try:
+            return frame, self.faces(frame)
+        except cv2.error:
+            return frame, []
 
     def detect(self):
-        if not self.available():
-            return None
-        cv2 = self.cv
-        cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
-        try:
-            if not cap.isOpened():
-                return None
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            got = False
-            for i in range(self.WARMUP + self.FRAMES):      # los primeros salen oscuros (autoexposición)
-                ok, frame = cap.read()
-                if not ok:
-                    continue
-                got = True
-                if i >= self.WARMUP and self.detect_frame(frame):
-                    return True
-            return False if got else None
-        except cv2.error:
-            return None
-        finally:
-            cap.release()
+        frame, faces = self.capture()
+        return None if frame is None else bool(faces)
 
 
 def _session_bus():
@@ -212,7 +242,8 @@ class Presence:
 
     def __init__(self, config, on_change, on_lock, enabled, in_call=lambda: False, detector=None,
                  actions=None, start=True, clock=time.monotonic, wall=None, epoch=time.time,
-                 camera_busy=None, post=None, desktop=None, bus=None):
+                 camera_busy=None, post=None, desktop=None, bus=None, identity=None, gallery=None,
+                 models=None, models_dir=None, fetch=None, rand=None):
         from datetime import datetime
         from .privacy import camera_users
         self.cfg, self.on_change, self.on_lock = config, on_change, on_lock
@@ -227,6 +258,12 @@ class Presence:
         self.state, self.error, self.last_seen, self.test_result = "off", None, None, None
         self.screen_off, self._shown, self.idle = False, None, None
         self.lock_failed = False      # el último intento de bloqueo falló (se limpia al volver a usar el equipo)
+        self.gallery = gallery if gallery is not None else Gallery()
+        self.identity = identity if identity is not None else IdentityVerifier(self.gallery)
+        self.models, self.models_dir, self.fetch = models, models_dir, fetch
+        self.rand = rand or random.random
+        self.camera_mutex = threading.Lock()   # nunca dos aperturas de cámara a la vez
+        self.enrolling, self.pending_prompt, self.last_input_at = False, None, None
         self._sync()
         if start:
             self.idle = IdleWatch(self.check_after(), self._idle, self._active, desktop=desktop, bus=bus)
@@ -256,11 +293,20 @@ class Presence:
     def _active(self, now):
         with self.mutex:
             self.logic.input_active(now)
+            self.last_input_at = now
             was_off, self.screen_off = self.screen_off, False
             self.lock_failed = False
         if was_off:
             self.actions["screen_on"]()
         self._notify()
+
+    def _capture(self):
+        with self.camera_mutex:
+            if hasattr(self.detector, "capture"):
+                return self.detector.capture()
+            # compatibilidad con detectores que solo exponen detect()
+            seen = self.detector.detect()
+            return (None if seen is None else "legacy"), ([[0, 0, 1, 1]] if seen else [])
 
     # ── bucle ──
     def _loop(self):
@@ -287,15 +333,46 @@ class Presence:
             else:
                 self.error = None
                 lg.pause_until(now + 1 if self.epoch() < c["paused_until"] else 0)
-                st = lg.step(now, in_schedule(self.wall(), c["start"], c["end"], c["days"]))
+                scheduled = in_schedule(self.wall(), c["start"], c["end"], c["days"])
+                st = lg.step(now, scheduled)
                 if lg.needs_check(now):
                     busy = self.in_call() or self.camera_busy()
-                    seen = None if busy else self.detector.detect()
-                    # sin datos (llamada, cámara ocupada o con error) = presente: nunca bloquear a ciegas
-                    lg.face(now, bool(seen), busy=seen is None)
-                    if seen:
-                        self.last_seen = self.epoch()
-                    st = lg.step(now)
+                    if busy or self.enrolling or self.pending_prompt is not None:
+                        # sin datos, llamada o pregunta pendiente = presente: nunca bloquear a ciegas
+                        lg.face(now, None, True)
+                    else:
+                        frame, faces = self._capture()
+                        seen = None if frame is None else bool(faces)
+                        label, feature = None, None
+                        enrolled = bool(seen and self.gallery.enrolled and self.identity is not None and
+                                        self.identity.available())
+                        # sin cara sí que es ausencia: solo se pregunta cuando hay una cara dudosa
+                        if enrolled:
+                            label, feature = self.identity.inspect(frame, faces)
+                        use_seen, use_busy = decide(label, seen, seen is None, enrolled)
+                        lg.face(now, use_seen, use_busy)
+                        if seen:
+                            self.last_seen = self.epoch()
+                        if label == "unknown" and feature is not None and frame is not None:
+                            self.pending_prompt = {"frame": frame, "feature": feature,
+                                                   "expires": now + PROMPT_TIMEOUT, "source": "doubt"}
+                    st = lg.step(now, scheduled)
+                elif (scheduled and lg.state not in _HELD and not self.enrolling and
+                      self.pending_prompt is None and self._daily_due(now) and
+                      not (self.in_call() or self.camera_busy())):
+                    # muestra diaria: se comparte la captura con la revisión de identidad; nunca se guarda la foto
+                    frame, faces = self._capture()
+                    if frame is not None and faces:
+                        feature = self.identity.enroll_feature(frame, faces)
+                        if feature is not None:
+                            self.pending_prompt = {"frame": frame, "feature": feature,
+                                                   "expires": now + PROMPT_TIMEOUT, "source": "daily"}
+                            self._schedule_sample()
+                if self.pending_prompt is not None:
+                    if now >= self.pending_prompt["expires"]:
+                        self.pending_prompt = None
+                    elif st not in ("locked", "warning", "lock_failed"):
+                        st = "confirm"
                 if st == "lock":
                     st = "locked"
                     if self.actions["lock"]():
@@ -312,7 +389,8 @@ class Presence:
 
     def _notify(self):
         left = self.seconds_left()
-        key = (self.state, None if left is None else int(left), self.error)
+        key = (self.state, None if left is None else int(left), self.error,
+               None if self.pending_prompt is None else id(self.pending_prompt))
         if key != self._shown:
             self._shown = key
             self.post(self.on_change)
@@ -321,6 +399,79 @@ class Presence:
         if self.state not in ("watching", "present", "warning"):
             return None
         return self.logic.seconds_left(self.clock())
+
+    # ── identidad y calibración ──
+    def _daily_due(self, now):
+        """¿Toca la muestra del día? Solo con input reciente y modelos listos."""
+        return bool(self.gallery.enrolled and self.identity is not None and
+                    self.identity.has_recognizer() and self.last_input_at is not None and
+                    0 <= now - self.last_input_at <= RECENT_INPUT and self.gallery.next_sample_at and
+                    self.epoch() >= self.gallery.next_sample_at)
+
+    def _schedule_sample(self):
+        c = self.conf
+        when = next_sample_time(self.wall(), c["start"], c["end"], c["days"], rand=self.rand)
+        self.gallery.next_sample_at = when.timestamp()
+
+    def answer(self, yes):
+        """Responde a «¿eras tú?»; un «sí» añade la muestra a la galería."""
+        with self.mutex:
+            prompt = self.pending_prompt
+            if prompt is None:
+                return
+            self.pending_prompt = None
+            now = self.clock()
+            if yes and prompt.get("feature") is not None:
+                try:
+                    self.gallery.add(prompt["feature"], when=self.epoch())
+                except OSError as e:
+                    self.error = str(e)
+            # evita repetir la misma pregunta en el ciclo siguiente
+            self.logic.face(now, True, False)
+            if self.state != "locked":
+                self.state = "present"
+        self._notify()
+
+    def clear_identity(self):
+        """Borra la galería y vuelve al modo de presencia anterior (cualquier cara cuenta)."""
+        with self.mutex:
+            self.gallery.clear()
+            self.pending_prompt = None
+            self.error = None
+            if self.state == "confirm":
+                self.state = "active"
+        self._notify()
+
+    def enroll(self, samples=3):
+        """Descarga los modelos si faltan y registra una muestra (llamar desde un hilo)."""
+        if self.enrolling:
+            return
+        with self.mutex:
+            self.enrolling, self.test_result = True, "Mirando…"
+        self._notify()
+        result = "No veo a nadie"
+        try:
+            paths = ensure_models(fetch=self.fetch, directory=self.models_dir, models=self.models)
+            if self.identity is None or not self.identity.has_recognizer():
+                import cv2
+                rec = cv2.FaceRecognizerSF.create(paths["sface"], "", backend_id=0, target_id=0)
+                self.identity = IdentityVerifier(self.gallery, recognizer=rec)
+            feature = None
+            for _ in range(samples):
+                frame, faces = self._capture()
+                feature = self.identity.enroll_feature(frame, faces)
+                if feature is not None:
+                    break
+            if feature is not None:
+                result = "Registrado" if self.gallery.add(feature, when=self.epoch()) else "No se pudo guardar"
+                if self.gallery.enrolled:
+                    self._schedule_sample()
+        except Exception as e:
+            result = f"Error: {e}"
+        finally:
+            with self.mutex:
+                self.enrolling, self.test_result = False, result
+            self._notify()
 
     # ── acciones de la interfaz ──
     def _set_pause(self, until):

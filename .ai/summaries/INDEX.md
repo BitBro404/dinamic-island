@@ -1,5 +1,6 @@
 # Resúmenes
 
+- [2026-11-22 · Presencia con identidad facial](2026-11-22-presencia-identidad.md) — «Otra persona» cuenta como ausencia; duda/error no bloquea; galería local de vectores sin fotos, modelos verificados y calibración diaria (pendiente de validación manual C8–C11).
 - [2026-11-22 · Seguridad 2](2026-11-22-seguridad-2.md) — S10–S17: git automático sin fsmonitor/hooks/uploadpack, GraphQL validado, prompt de conflictos como datos, servidores (PATH, PID, logs), Docker y ramas con «-».
 - [2026-11-22 · GitHub, git, servidores y DEV](2026-11-22-github-git-servidores-dev.md) — cuentas de gh, ramas/PR/stash/merge, isla centrada, servidores y Docker, sección DEV y punto de novedades.
 - [2026-11-21 · Sensor de presencia con cámara](2026-11-21-sensor-presencia.md) — bloquear y apagar pantalla si no hay nadie; horario; botón rápido.

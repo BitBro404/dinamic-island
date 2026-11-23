@@ -183,8 +183,8 @@ Funciona así:
 2. Si nadie aparece durante **N minutos** (5 por defecto), la píldora muestra una cuenta atrás.
 3. Al terminar la cuenta atrás, la isla **bloquea la sesión y apaga la pantalla**.
 
-Hay casos en los que nunca bloquea: si estás en una llamada, si otra app usa la cámara o si hay un error
-de cámara.
+Hay casos en los que nunca bloquea: si estás en una llamada, si otra app usa la cámara, si hay un error
+de cámara o si el reconocimiento de identidad no puede decidir.
 
 Para configurarla, ve a la página **Presencia** (inicio → casilla Presencia → ›):
 
@@ -194,8 +194,26 @@ Para configurarla, ve a la página **Presencia** (inicio → casilla Presencia �
 - **Pausa**: 1 hora, hasta mañana o reanudar.
 - **Probar cámara**: comprueba si te detecta.
 
-Para detectar mejor de perfil o con poca luz, usa YuNet en lugar del detector Haar. Para ello, guarda
-`face_detection_yunet.onnx` en `~/.local/share/isla-dinamica/`.
+#### Solo tú (reconocimiento facial)
+
+**Registrar mi rostro** descarga dos modelos pequeños de OpenCV Zoo (YuNet y SFace, Apache-2.0) y guarda
+un **vector de rasgos** en `~/.config/isla-dinamica/identity/gallery.json` (carpeta `0700`, archivo `0600`).
+**Nunca se guarda ninguna foto**: la imagen se usa en memoria durante la revisión y se descarta.
+
+- Sin rostro registrado, todo sigue igual: cualquier cara cuenta como presente.
+- Con rostro registrado, una cara que no coincide **no** cuenta como presente y puede llegar a bloquear.
+- Si la cámara está ocupada, hay un error, faltan modelos o el parecido está en zona dudosa, **no se
+  bloquea** (se prefiere fallar a favor de que sigas usando el equipo).
+- **Calibración**: una vez al día, a una hora aleatoria dentro de tu horario y solo tras uso reciente del
+  teclado/ratón, o cuando el parecido sea dudoso, la isla muestra la foto en memoria y pregunta **«¿Eras
+  tú?»**. Si dices «sí», se añade ese vector a la galería (1 plantilla ancla + hasta 5 muestras rotativas,
+  se sustituye la más antigua). «No», dejar pasar 20 segundos o no responder no cambia nada. Mientras
+  esperas, esa revisión no bloquea.
+- **Borrar mi rostro** elimina la galería y vuelve al modo anterior.
+
+Esto **no es control de acceso**: no detecta si la imagen es una foto o una pantalla. Si otra persona
+confirma una muestra falsa, la galería puede quedar contaminada; por eso solo se pregunta con actividad
+reciente y siempre puedes borrarla.
 
 Limitación: si Chrome reproduce música o vídeo, el sistema no se considera inactivo y la presencia no
 empieza a contar.
@@ -355,6 +373,7 @@ El fixture acepta `BT_NAME`, `BT_BATTERY` (`none` para probar sin porcentaje), `
 | No llegan los mensajes de Teams o del correo | Deja Teams y Outlook web abiertos en Chrome con las notificaciones permitidas, y desactiva «No molestar». |
 | Presencia dice «Sin OpenCV» | `sudo apt install python3-opencv opencv-data` |
 | Presencia nunca cuenta | Hay música o vídeo reproduciéndose (inhibe la inactividad), o estás fuera del horario o en pausa. |
+| «Error» al registrar el rostro | Sin red: los modelos se descargan al registrar y se verifican por hash. Vuelve a intentarlo con conexión. |
 | Grabar pantalla no funciona | `sudo apt install wf-recorder` (wlroots) o `ffmpeg` (X11). `--doctor` dice qué método se eligió; el portal es el último recurso |
 | Una función no sale en el panel | No hay método en este escritorio. Mira `isla-dinamica --doctor` e instala la herramienta que indica; las casillas sin método se ocultan |
 | En GNOME la ventana queda detrás de las maximizadas | Instala la extensión provisional con `./install.sh --gnome-extension` y reinicia la sesión |

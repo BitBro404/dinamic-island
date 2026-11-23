@@ -275,6 +275,7 @@ Necesita una webcam en `/dev/video0`. Viene **apagada**: actívala con la casill
 - durante una llamada (requiere el nivel 2);
 - si otra app está usando la cámara;
 - si la cámara da error;
+- si el reconocimiento no puede decidir (duda, faltan modelos o no hay datos);
 - fuera del horario o en pausa.
 
 **Página Presencia:**
@@ -283,12 +284,30 @@ Necesita una webcam en `/dev/video0`. Viene **apagada**: actívala con la casill
   puede cruzar la medianoche.
 - **Pausa**: 1 hora, hasta mañana o reanudar.
 - **Probar cámara**: comprueba si te detecta.
-- **Estado**: Vigilando, Te ve, Bloqueando, Fuera de horario, En pausa o Sin OpenCV. También se ve en la
-  casilla del inicio y en una burbuja con un ojo.
+- **Registrar mi rostro / Borrar mi rostro**: activa y quita el reconocimiento (ver abajo).
+- **Estado**: Vigilando, Te ve, Otra persona, ¿Eras tú?, Bloqueando, Fuera de horario, En pausa o Sin OpenCV.
+  También se ve en la casilla del inicio y en una burbuja con un ojo.
 
-**Mejor detección (opcional):** guarda el modelo YuNet `face_detection_yunet.onnx` en
-`~/.local/share/isla-dinamica/`. Detecta mejor caras de perfil y con poca luz que el detector Haar que se
-usa por defecto.
+#### Solo tú (reconocimiento facial)
+
+**Registrar mi rostro** mira a la cámara, descarga dos modelos públicos de OpenCV Zoo (YuNet y SFace,
+Apache-2.0, verificados por tamaño y SHA-256) y guarda un vector de 128 números en
+`~/.config/isla-dinamica/identity/gallery.json` (carpeta `0700`, archivo `0600`; ignorado por git).
+**La foto nunca se escribe en disco**: solo se usa en memoria mientras se responde a la pregunta.
+
+- Sin rostro registrado, cualquier cara cuenta como presente (comportamiento de siempre).
+- Con rostro registrado, una cara que no coincide cuenta como ausente y puede bloquear; si no hay cara,
+  también cuenta como ausencia.
+- Si la cámara está ocupada, hay error, faltan modelos o el parecido está en zona dudosa, **no bloquea**.
+- **Calibración**: una vez al día a una hora aleatoria dentro del horario (solo tras uso reciente del
+  teclado o ratón), o ante una lectura dudosa, la tarjeta *«¿Eras tú?»* muestra la foto en memoria.
+  *Sí* añade ese vector a la galería (1 plantilla ancla + hasta 5 muestras rotativas); *No*, dejar pasar
+  20 segundos o no responder no cambia nada. Mientras esperas, esa revisión no bloquea.
+- **Borrar mi rostro** elimina el archivo y vuelve al modo anterior. Los modelos descargados se conservan.
+
+**No es control de acceso**: no detecta si la imagen es una foto o una pantalla. La isla solo compara
+parecidos estadísticos; si otra persona confirma una muestra falsa, la galería puede quedar contaminada
+(siempre puedes borrarla).
 
 **Limitación:** si Chrome reproduce música o vídeo, el sistema no se considera inactivo y la presencia no
 empieza a contar.
@@ -298,7 +317,8 @@ empieza a contar.
 ## Configuración guardada
 
 Todo lo que cambias desde la isla se guarda en `~/.config/isla-dinamica/config.json`. Si una clave falta o
-no es válida, se usa el valor por defecto.
+no es válida, se usa el valor por defecto. La plantilla facial va aparte, en
+`~/.config/isla-dinamica/identity/gallery.json` (solo vectores, nunca imágenes).
 
 | Clave | Por defecto | Para qué |
 |---|---|---|

@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 tests/capturas/
+
+# Plantilla facial local: en producción vive en ~/.config/isla-dinamica/identity/gallery.json
+# (fuera del repo). Se ignora también aquí por si se copia al árbol de trabajo.
+gallery.json

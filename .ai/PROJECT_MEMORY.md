@@ -11,6 +11,14 @@
 - Seguridad: URLs solo con `util.safety.open_web`; contraseñas Wi-Fi por stdin (`nmcli --ask`); no apagar pantalla
   si el bloqueo falla; portapapeles sin secretos y con caducidad; isla oculta con la sesión bloqueada (LockGuard).
 - Funciones activables: vienen encendidas salvo las de `config.FEATURE_DEFAULTS` (p. ej. `presence`).
+- Identidad en presencia (`services/identity.py`): YuNet + SFace de OpenCV Zoo descargados a
+  `~/.local/share/isla-dinamica/models` con tamaño + SHA-256 de **64 hex**; 1 ancla + hasta 5 rotativas en
+  `~/.config/isla-dinamica/identity/gallery.json` (`0700/0600`, ignorado por git, sin imágenes). Bandas
+  `me ≥ 0.363`, `other < 0.25`, duda entre medias. Cara ajena o sin cara → ausencia (bloquea); duda/error/
+  cámara ocupada/sin modelos → fail-open (no bloquea). Sin plantilla, comportamiento anterior.
+- La foto de la pregunta «¿Eras tú?» solo vive en RAM (`pending_prompt["frame"]` y la miniatura de la tarjeta)
+  y se limpia al responder/caducar; jamás se escribe en disco. No hay detección de vida: no es control de acceso.
 - Pruebas unitarias: `python3 -W error::ResourceWarning -m unittest discover -s tests/unit` (no hay pytest).
   Capturas de UI: `python3 tests/harness.py <páginas> --setup tests/fixtures/<x>.py` (reinicia la isla instalada).
+  **Los fixtures nunca deben usar la galería real**: `presence_identity_demo.py` crea una `Gallery` temporal.
 - Lógica testeable separada de hilos/hardware (reloj, detector y acciones inyectados), como `services/presence.py`.
